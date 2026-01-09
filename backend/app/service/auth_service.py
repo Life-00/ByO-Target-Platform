@@ -5,15 +5,10 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from app.core.config import settings
 
-# 1. 비밀번호 해싱 설정
-# bcrypt 알고리즘을 사용하며, passlib와 bcrypt 최신 버전 간의 호환성을 위해 
-# 이전 단계에서 설정한 대로 안전하게 관리합니다.
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 class AuthService:
     def __init__(self):
-        # 서비스 초기화 시 설정 로드 확인
-        # tqdm 대신 상세한 print 문을 사용하여 초기화 상태를 알립니다.
         print(f"[{time.strftime('%H:%M:%S')}] [AUTH-SERVICE] Initializing AuthService...")
         print(f"  - Algorithm: {settings.ALGORITHM}")
         print(f"  - Token Expiry: {settings.ACCESS_TOKEN_EXPIRE_MINUTES} minutes")
@@ -48,12 +43,10 @@ class AuthService:
         else:
             expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
         
-        # 만료 시간(exp) 추가
         to_encode.update({"exp": expire})
         
         print(f"[{time.strftime('%H:%M:%S')}] [AUTH-SERVICE] Creating JWT for: {to_encode.get('sub')}")
         
-        # config.py의 JWT_SECRET_KEY를 사용하여 인코딩
         encoded_jwt = jwt.encode(
             to_encode, 
             settings.JWT_SECRET_KEY, 
@@ -71,7 +64,6 @@ class AuthService:
         try:
             print(f"[{time.strftime('%H:%M:%S')}] [AUTH-SERVICE] Decoding incoming token...")
             
-            # 토큰 복호화 시도
             payload = jwt.decode(
                 token, 
                 settings.JWT_SECRET_KEY, 
@@ -87,9 +79,7 @@ class AuthService:
             return email
 
         except JWTError as e:
-            # 토큰 만료, 위변조 등 모든 JWT 관련 에러 처리
             print(f"  - Verification Failed: {str(e)}")
             return None
 
-# 어디서든 동일한 설정을 사용할 수 있도록 인스턴스화하여 내보냅니다.
 auth_service = AuthService()

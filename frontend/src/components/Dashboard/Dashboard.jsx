@@ -11,6 +11,7 @@ import {
   Image as ImageIcon,
   Loader2,
 } from "lucide-react";
+import api from "../../api";
 import "./Dashboard.css";
 
 const Dashboard = ({ onLogout }) => {
@@ -33,7 +34,7 @@ const Dashboard = ({ onLogout }) => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, [messages, isWaiting]);
 
   // 새 채팅 세션 시작
   const handleNewChat = () => {
@@ -49,19 +50,21 @@ const Dashboard = ({ onLogout }) => {
     setIsWaiting(false);
   };
 
-  // 파일 업로드 처리
+  // 파일 업로드 처리 (현재는 시뮬레이션, 추후 백엔드 연동 예정)
   const handleFileUpload = async (files) => {
     setIsUploading(true);
-    console.log("--- BACKEND FILE UPLOAD IN PROGRESS ---");
+    console.log("[FRONT] Processing files for upload...");
+
     for (const file of files) {
-      console.log(`PRINT: Processing ${file.name}...`);
-      await new Promise((r) => setTimeout(r, 700)); // 업로드 시뮬레이션
+      console.log(`- Attached: ${file.name}`);
+      // 실제 파일 업로드 로직은 차후 '파일 분석' 기능 구현 시 추가
     }
+
     setPendingFiles((prev) => [...prev, ...files]);
     setIsUploading(false);
   };
 
-  // 메시지 전송 처리
+  //  메시지 전송 처리 (실제 백엔드 Solar-Pro 연동)
   const handleSendMessage = async () => {
     if (
       isUploading ||
@@ -70,27 +73,49 @@ const Dashboard = ({ onLogout }) => {
     )
       return;
 
-    const userMsg = input;
-    const currentFiles = [...pendingFiles];
+    const userMsgContent = input;
+    // 1. 화면에 사용자 메시지 먼저 표시
+    setMessages((prev) => [...prev, { role: "user", content: userMsgContent }]);
 
-    setMessages((prev) => [...prev, { role: "user", content: userMsg }]);
-
+    // 상태 초기화
     setIsWaiting(true);
     setInput("");
     setPendingFiles([]);
-    console.log(
-      `[REQUEST] User sent message. Disabling button until response.`
-    );
 
-    console.log("PRINT: Sending request to Upstage Solar API...");
-    await new Promise((r) => setTimeout(r, 1500)); // 답변 생성 시간
+    console.log(`[REQUEST] Sending message to Solar-Pro: "${userMsgContent}"`);
 
-    const aiResponse =
-      "분석이 완료되었습니다. 제공해주신 데이터를 바탕으로 타겟 유효성 검증 리포트를 생성했습니다.";
-    setMessages((prev) => [...prev, { role: "ai", content: aiResponse }]);
+    try {
+      // 2. 백엔드 API 호출
+      // 텍스트만 보낼 때는 FormData 혹은 JSON 둘 다 가능하지만,
+      // 나중에 파일 전송을 고려해 FormData 형식을 사용합니다.
+      const formData = new FormData();
+      formData.append("message", userMsgContent);
 
-    setIsWaiting(false);
-    console.log(`[RESPONSE] Received answer. Re-enabling button.`);
+      const response = await api.post("/chat", formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      });
+
+      // 3. 백엔드로부터 받은 Solar-Pro의 답변을 화면에 추가
+      const aiAnswer = response.data.reply;
+      console.log("[RESPONSE] Solar-Pro replied successfully.");
+
+      setMessages((prev) => [...prev, { role: "ai", content: aiAnswer }]);
+    } catch (error) {
+      console.error("[CHAT-ERROR]", error.response?.data || error.message);
+      alert(
+        "에이전트와 통신 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+      );
+
+      // 에러 시 안내 메시지 추가
+      setMessages((prev) => [
+        ...prev,
+        { role: "ai", content: "죄송합니다. 서버 응답에 문제가 발생했습니다." },
+      ]);
+    } finally {
+      setIsWaiting(false);
+    }
   };
 
   // 대기 중인 파일 삭제
@@ -111,7 +136,6 @@ const Dashboard = ({ onLogout }) => {
         handleFileUpload(Array.from(e.dataTransfer.files));
       }}
     >
-      {/* 드래그 앤 드롭 오버레이 */}
       {dragActive && (
         <div className="drag-overlay">
           <h2>파일을 여기에 놓으세요</h2>
@@ -131,15 +155,9 @@ const Dashboard = ({ onLogout }) => {
 
         <div className="chat-list">
           <p className="chat-list-header">RESEARCH HISTORY</p>
-
           <div className="chat-item active">
             <MessageSquare size={18} />
-            <span>Cancer Target Validation Study - Session 1</span>
-          </div>
-
-          <div className="chat-item">
-            <MessageSquare size={18} />
-            <span>Protein Interaction Analysis</span>
+            <span>현재 분석 세션</span>
           </div>
         </div>
 
@@ -151,7 +169,6 @@ const Dashboard = ({ onLogout }) => {
 
       {/* 메인 채팅 영역 */}
       <main className="chat-main">
-        {/* 메시지 리스트 */}
         <div className="message-container" ref={scrollRef}>
           {messages.map((m, i) => (
             <div key={i} className={`msg-bubble ${m.role}`}>
@@ -163,7 +180,7 @@ const Dashboard = ({ onLogout }) => {
               className="msg-bubble ai"
               style={{ display: "flex", gap: "8px", alignItems: "center" }}
             >
-              <Loader2 className="animate-spin" size={16} /> 에이전트가 생각
+              <Loader2 className="animate-spin" size={16} /> Solar-Pro가 분석
               중입니다...
             </div>
           )}
@@ -193,7 +210,6 @@ const Dashboard = ({ onLogout }) => {
         {/* 입력창 영역 */}
         <div className="input-area-wrapper">
           <div className="input-box-container">
-            {/* 파일 첨부 버튼 */}
             <label
               style={{
                 cursor: isUploading || isWaiting ? "default" : "pointer",
@@ -214,7 +230,6 @@ const Dashboard = ({ onLogout }) => {
               />
             </label>
 
-            {/* 텍스트 입력부 */}
             <input
               className="main-text-input"
               value={input}
@@ -225,12 +240,13 @@ const Dashboard = ({ onLogout }) => {
                 (e.preventDefault(), handleSendMessage())
               }
               placeholder={
-                isWaiting ? "답변을 기다리는 중..." : "메시지를 입력하세요..."
+                isWaiting
+                  ? "분석 답변을 기다리는 중..."
+                  : "타겟 분석에 대해 질문하세요..."
               }
               disabled={isUploading || isWaiting}
             />
 
-            {/* 전송 버튼 */}
             <button
               className="send-button"
               onClick={handleSendMessage}
@@ -239,17 +255,6 @@ const Dashboard = ({ onLogout }) => {
                 isWaiting ||
                 (!input.trim() && pendingFiles.length === 0)
               }
-              style={{
-                background: "none",
-                border: "none",
-                color:
-                  isUploading ||
-                  isWaiting ||
-                  (!input.trim() && pendingFiles.length === 0)
-                    ? "#cbd5e1"
-                    : "var(--bio-primary)",
-                cursor: isUploading || isWaiting ? "not-allowed" : "pointer",
-              }}
             >
               {isUploading || isWaiting ? (
                 <Loader2 className="animate-spin" size={24} />

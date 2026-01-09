@@ -1,20 +1,23 @@
-from fastapi import APIRouter, Form, File, UploadFile
+from fastapi import APIRouter, Depends, Form, File, UploadFile
 from typing import List, Optional
-from app.service.solar_service import SolarService
+from app.api.v1.auth import oauth2_scheme 
+from app.service.auth_service import auth_service
+from app.service.solar_service import solar_service
 import time
 
 router = APIRouter()
-solar_service = SolarService()
 
-@router.post("/chat")
-async def chat_v1(
+@router.post("")
+async def chat_with_agent(
     message: str = Form(...),
-    files: Optional[List[UploadFile]] = File(None)
+    token: str = Depends(oauth2_scheme) 
 ):
-    print(f"\n[{time.strftime('%H:%M:%S')}] [ROUTE] New Request Received")
-    print(f"  - Message: {message[:30]}...")
+    user_email = auth_service.verify_token(token)
     
-    # 서비스 레이어 호출
-    response = await solar_service.perform_analysis(message, files)
+    answer = await solar_service.get_chat_response(user_email, message)
     
-    return {"status": "success", "reply": response}
+    return {
+        "user": user_email,
+        "reply": answer,
+        "timestamp": time.time()
+    }
