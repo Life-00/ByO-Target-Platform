@@ -13,3 +13,8 @@ dependencies = [
 
 [tool.setuptools]
 packages = ["app"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+]
