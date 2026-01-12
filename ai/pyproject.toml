@@ -9,6 +9,7 @@ dependencies = [
     "pydantic>=2.0.0",
     "biopython>=1.80",
     "typing-extensions>=4.0.0",
+    "python-dotenv>=1.2.1",
 ]
 
 [tool.setuptools]
@@ -18,3 +19,5 @@ packages = ["app"]
 dev = [
     "pytest>=8.4.2",
 ]
+[tool.pytest.ini_options]
+pythonpath = ["."]

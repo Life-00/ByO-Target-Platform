@@ -25,7 +25,7 @@ class RetrieverAgent:
 
         g.set_entry_point("retrieve_pubmed")
         g.add_edge("retrieve_pubmed", END)
-        return g
+        return g.compile()
 
     def run(self, user_query: UserQuery) -> PaperCorpus:
         state: RetrieverState = {"user_query": user_query}

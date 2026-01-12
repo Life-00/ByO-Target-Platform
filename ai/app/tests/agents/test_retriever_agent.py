@@ -1,5 +1,5 @@
 from app.agents.retriever.agent import RetrieverAgent
-from app.schemas.user_query import UserQuery
+from app.schemas.user_query import UserQuery, SearchConstraints
 
 def test_retriever_returns_paper_corpus():
     agent = RetrieverAgent()
@@ -7,7 +7,9 @@ def test_retriever_returns_paper_corpus():
         query_id="test",
         target="EGFR",
         disease="lung cancer",
-        question="Is EGFR a valid therapeutic target?"
+        organ="lung",
+        research_question="Is EGFR a valid therapeutic target?",
+        constraints=SearchConstraints(year_from=2018)
     )
 
     corpus = agent.run(uq)
