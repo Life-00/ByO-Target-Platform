@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Deploy to EC2 via SSH
         uses: appleboy/ssh-action@master
@@ -18,35 +18,46 @@ jobs:
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            TARGET_DIR="workspace/TVA_test"
-            cd $TARGET_DIR
+            set -euo pipefail
 
-            # 1. 코드 업데이트 및 기존 컨테이너 정리
+            TARGET_DIR="workspace/TVA_test"
+            cd "$TARGET_DIR"
+
+            echo "[DEPLOY] Pulling latest code..."
             git fetch --all
             git reset --hard origin/main
-            docker compose down
 
-            # 2. 모든 Secrets를 export로 확실하게 선언 (이 방식이 가장 안전합니다)
+            # NOTE:
+            # - docker compose down does NOT remove named volumes unless you pass -v
+            # - we intentionally do NOT use -v so Postgres/Chroma data persists across redeploys
+            echo "[DEPLOY] Stopping existing containers (keeping volumes)..."
+            docker compose down --remove-orphans
+
+            echo "[DEPLOY] Exporting secrets for docker compose..."
             export VITE_API_BASE_URL="http://${{ secrets.EC2_HOST }}:8000/api/v1"
+
             export UPSTAGE_API_KEY="${{ secrets.UPSTAGE_API_KEY }}"
             export UPSTAGE_BASE_URL="${{ secrets.UPSTAGE_BASE_URL }}"
             export UPSTAGE_MODEL="${{ secrets.UPSTAGE_MODEL }}"
             export UPSTAGE_EMBED_MODEL="${{ secrets.UPSTAGE_EMBED_MODEL }}"
-            export DATABASE_URL="${{ secrets.DATABASE_URL }}"
             export JWT_SECRET_KEY="${{ secrets.JWT_SECRET_KEY }}"
-            export CHROMA_HOST="chroma"
-            export CHROMA_PORT="8000"
+
+            # DB (DATABASE_URL 사용 안 함)
             export DB_USER="${{ secrets.DB_USER }}"
             export DB_PASSWORD="${{ secrets.DB_PASSWORD }}"
-            export DB_HOST="${{ secrets.DB_HOST }}"
-            export DB_PORT="${{ secrets.DB_PORT }}"
             export DB_NAME="${{ secrets.DB_NAME }}"
+            export DB_HOST="db"
+            export DB_PORT="5432"
+            # docker-compose의 db 컨테이너는 기본 SSL 비활성
+            export DB_SSLMODE="disable"
 
-            # 3. 위에서 export된 변수들을 가지고 도커 실행
-            echo "[DEPLOY] Starting containers with exported secrets..."
-            docker compose up -d --build --force-recreate
+            # Chroma
+            export CHROMA_HOST="chroma"
+            export CHROMA_PORT="8000"
 
-            # 4. 이미지 정리 (요청하신 기능)
+            echo "[DEPLOY] Building and starting containers..."
+            docker compose up -d --build --remove-orphans
+
             echo "[DEPLOY] Cleaning up unused images..."
             docker image prune -af
 
