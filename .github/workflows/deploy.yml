@@ -18,7 +18,9 @@ jobs:
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            cd ByO-Target-Platform
+            TARGET_DIR="/home/ubuntu/workspace/TVA"
+            mkdir -p $TARGET_DIR
+            cd $TARGET_DIR
             git pull origin main
 
             # 1. 프론트엔드 빌드를 위한 환경 변수 설정 (.env 파일 생성)
