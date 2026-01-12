@@ -88,6 +88,8 @@ async def session_chat(
     
     # 3. Solar-Pro 답변 생성 (RAG 컨텍스트 포함)
     reply = await solar_service.get_chat_response(email, message, session_id=session_id)
+    # 추후 에이전트 개발 완료 시
+    # reply = await agent_service.process_request(email, session_id, message)
     
     # 4. AI 답변 DB 저장
     db.add(Message(session_id=session_id, user_email=email, role="ai", content=reply))

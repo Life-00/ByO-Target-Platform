@@ -1,6 +1,6 @@
 import os
 import time
-from typing import List
+import chromadb
 from langchain_upstage import UpstageDocumentParseLoader, UpstageEmbeddings
 from langchain_chroma import Chroma
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -10,23 +10,31 @@ from app.core.config import settings
 class RAGService:
     def __init__(self):
         self.api_key = settings.UPSTAGE_API_KEY
+    
         self.embeddings = UpstageEmbeddings(
             api_key=self.api_key, 
             model="solar-embedding-1-large"
         )
-        self.persist_directory = "./chroma_db"
+        
+        print(f"[{time.strftime('%H:%M:%S')}] [RAG-INIT] Connecting to Vector DB at {settings.CHROMA_HOST}:{settings.CHROMA_PORT}...")
+        
+        self.client = chromadb.HttpClient(
+            host=settings.CHROMA_HOST,
+            port=settings.CHROMA_PORT
+        )
         
         self.vector_db = Chroma(
-            persist_directory=self.persist_directory,
-            embedding_function=self.embeddings,
-            collection_name="byo_target_docs"
+            client=self.client,
+            collection_name="byo_target_docs",
+            embedding_function=self.embeddings
         )
         
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,
             chunk_overlap=100
         )
-        print(f"[{time.strftime('%H:%M:%S')}] [RAG-SERVICE] Initialized.")
+        
+        print(f"[{time.strftime('%H:%M:%S')}] [RAG-SERVICE] Server Connection Success.")
 
     async def process_and_store(self, file_path: str, session_id: str, email: str):
         try:
@@ -53,10 +61,13 @@ class RAGService:
             return False
 
     def get_relevant_context(self, query: str, session_id: str, email: str) -> str:
-        """현재 유저의 세션 데이터만 필터링하여 검색"""
-        print(f"[{time.strftime('%H:%M:%S')}] [RAG-RETRIEVE] Querying for session: {session_id}")
+        """
+        유사도 검색 시 텍스트와 함께 파일명, 페이지 정보를 묶어서 에이전트에게 전달합니다.
+        """
+        print(f"[{time.strftime('%H:%M:%S')}] [RAG-RETRIEVE] Searching for context (Session: {session_id})")
         
         try:
+            # 현재 세션과 유저에 해당하는 데이터만 필터링
             search_kwargs = {
                 "filter": {
                     "$and": [
@@ -64,14 +75,34 @@ class RAGService:
                         {"session_id": str(session_id)}
                     ]
                 },
-                "k": 5
+                "k": 4 
             }
             
             docs = self.vector_db.similarity_search(query, **search_kwargs)
-            context = "\n\n".join([doc.page_content for doc in docs])
-            return context
+            
+            if not docs:
+                return "관련된 문서 내용을 찾을 수 없습니다."
+
+            context_parts = []
+            for i, doc in enumerate(docs):
+                # Upstage 파서가 제공하는 메타데이터 추출
+                source_file = doc.metadata.get("source", "알 수 없는 파일")
+                page_num = doc.metadata.get("page", "-")
+                
+                # 에이전트가 학습된 대로 근거를 인용할 수 있도록 포맷팅
+                formatted_doc = (
+                    f"[근거 {i+1}]\n"
+                    f"출처: {source_file} ({page_num}페이지)\n"
+                    f"내용: {doc.page_content}\n"
+                )
+                context_parts.append(formatted_doc)
+                
+            return "\n".join(context_parts)
+
         except Exception as e:
-            print(f"[{time.strftime('%H:%M:%S')}] [RAG-RETRIEVE-ERROR] {str(e)}")
-            return ""
+            print(f"[{time.strftime('%H:%M:%S')}] [RAG-ERROR] {str(e)}")
+            return "문서 검색 중 오류가 발생했습니다."
+        
+    
 
 rag_service = RAGService()

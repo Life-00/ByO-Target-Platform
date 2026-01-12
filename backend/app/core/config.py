@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     DB_HOST: str
     DB_PORT: int  
     DB_NAME: str
+    
+    DATABASE_URL: str
+    
+    # ChromaDB
+    CHROMA_HOST: str = "localhost"
+    CHROMA_PORT: int = 8000
 
     class Config:
         env_file = ".env"
