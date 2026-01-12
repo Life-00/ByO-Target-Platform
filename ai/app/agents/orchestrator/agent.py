@@ -14,6 +14,8 @@ from app.agents.extractor.agent import ExtractorAgent
 from app.agents.validator.agent import ValidatorAgent
 from app.agents.synthesizer.agent import SynthesizerAgent
 
+from app.services.chromadb.ingest import add_papers_to_chromadb
+
 # ======================================================
 # Orchestrator State
 # ======================================================
@@ -99,6 +101,9 @@ class OrchestratorAgent:
         # 재검색 플래그 리셋
         state["need_more_retrieval"] = False
         state["retrieval_hint"] = None
+
+        # Vector DB 적재
+        add_papers_to_chromadb(paper_corpus)
 
         return state
 

@@ -7,6 +7,7 @@ from app.schemas.user_query import UserQuery
 from app.schemas.paper import PaperCorpus
 from app.services.pubmed.service import search_pubmed
 
+from app.core.chromadb import papers_collection
 
 class RetrieverAgent:
     """
