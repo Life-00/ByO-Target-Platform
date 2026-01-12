@@ -29,6 +29,7 @@ services:
     build: ./backend
     environment:
       - UPSTAGE_API_KEY=${UPSTAGE_API_KEY}
+      - UPSTAGE_EMBED_MODEL=${UPSTAGE_EMBED_MODEL}
       - DATABASE_URL=${DATABASE_URL}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - UPSTAGE_BASE_URL=${UPSTAGE_BASE_URL}
