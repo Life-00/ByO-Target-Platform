@@ -1,4 +1,3 @@
-import uvicorn
 import time
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,7 +25,7 @@ print(f"[{time.strftime('%H:%M:%S')}] [CORS] Allowed origins: {origins}")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_credentials=False,  
+    allow_credentials=False, 
     allow_methods=["*"],
     allow_headers=["Authorization", "Content-Type"],
 )
@@ -37,4 +36,4 @@ app.include_router(chat.router, prefix="/api/v1/chat", tags=["Chat"])
 
 @app.get("/")
 def root():
-    return {"message": "Server is running with SQLAlchemy ORM"}
+    return {"message": "ok"}
