@@ -1,64 +1,78 @@
+import time
 from fastapi import APIRouter, HTTPException, Depends, status
 from fastapi.security import OAuth2PasswordBearer
-from app.models.user import UserCreate, UserResponse, Token
+from sqlalchemy.orm import Session
+
+from app.core.database import get_db
+from app.models.user_db import User  
+from app.models.user import UserCreate, UserResponse, Token  
 from app.service.auth_service import auth_service
-import time
 
 router = APIRouter()
 
+# 토큰 추출을 위한 OAuth2 설정
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login")
 
-fake_users_db = {}
-
 @router.post("/signup", response_model=UserResponse)
-async def signup(user_in: UserCreate):
-    print(f"\n[{time.strftime('%H:%M:%S')}] [API] Signup Request: {user_in.email}")
+async def signup(user_in: UserCreate, db: Session = Depends(get_db)):
+    print(f"\n[{time.strftime('%H:%M:%S')}] [AUTH-API] Signup attempt for: {user_in.email}")
     
-    if user_in.email in fake_users_db:
-        print(f"  - Error: User {user_in.email} already exists.")
+    # 1. 중복 유저 체크 (ORM 사용)
+    existing_user = db.query(User).filter(User.email == user_in.email).first()
+    if existing_user:
+        print(f"  - Error: User {user_in.email} already exists in DB.")
         raise HTTPException(status_code=400, detail="이미 등록된 이메일입니다.")
     
+    # 2. 새로운 유저 객체 생성
     hashed_pw = auth_service.hash_password(user_in.password)
-    new_user = {
-        "id": len(fake_users_db) + 1,
-        "email": user_in.email,
-        "name": user_in.name,
-        "hashed_password": hashed_pw
-    }
-    fake_users_db[user_in.email] = new_user
+    new_user = User(
+        email=user_in.email,
+        name=user_in.name,
+        hashed_password=hashed_pw
+    )
     
-    print(f"  - Success: User {user_in.email} registered. (Hashed PW: {hashed_pw[:10]}...)")
+    # 3. DB 저장
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    
+    print(f"  - Success: User registered with ID {new_user.id}")
     return new_user
 
 @router.post("/login", response_model=Token)
-async def login(user_in: UserCreate): # OAuth2PasswordRequestForm 대신 간단하게 구현
-    print(f"\n[{time.strftime('%H:%M:%S')}] [API] Login Attempt: {user_in.email}")
+async def login(user_in: UserCreate, db: Session = Depends(get_db)):
+    print(f"\n[{time.strftime('%H:%M:%S')}] [AUTH-API] Login attempt: {user_in.email}")
     
-    user = fake_users_db.get(user_in.email)
-    if not user or not auth_service.verify_password(user_in.password, user["hashed_password"]):
+    # 1. 유저 조회
+    user = db.query(User).filter(User.email == user_in.email).first()
+    
+    # 2. 검증
+    if not user or not auth_service.verify_password(user_in.password, user.hashed_password):
         print(f"  - Failure: Invalid credentials for {user_in.email}")
         raise HTTPException(status_code=401, detail="이메일 또는 비밀번호가 틀렸습니다.")
     
-    access_token = auth_service.create_access_token(data={"sub": user["email"]})
-    print(f"  - Success: {user_in.email} logged in.")
+    # 3. 토큰 발급
+    access_token = auth_service.create_access_token(data={"sub": user.email})
+    print(f"  - Success: JWT issued for {user.email}")
     
     return {"access_token": access_token, "token_type": "bearer"}
 
 @router.get("/me")
-async def get_my_info(token: str = Depends(oauth2_scheme)):
+async def get_my_info(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     """
-    프론트엔드 새로고침 시 토큰의 유효성을 검사하는 API
+    프론트엔드 새로고침 시 토큰 유효성 검사 및 유저 정보 반환
     """
-    print(f"\n[{time.strftime('%H:%M:%S')}] [AUTH-CHECK] Verifying session token...")
+    print(f"\n[{time.strftime('%H:%M:%S')}] [AUTH-CHECK] Verifying session via token...")
     
     email = auth_service.verify_token(token)
-    
     if not email:
-        print(f"  - Result: Token is invalid or expired.")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="세션이 만료되었습니다. 다시 로그인해주세요.",
-        )
+        print(f"  - Result: Token invalid.")
+        raise HTTPException(status_code=401, detail="세션이 만료되었습니다.")
     
-    print(f"  - Result: Token verified for user: {email}")
-    return {"email": email, "status": "authenticated"}
+    # 유효한 경우 DB에서 최신 정보 조회
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="유저를 찾을 수 없습니다.")
+
+    print(f"  - Result: Welcome back, {user.name}")
+    return {"email": user.email, "name": user.name, "status": "authenticated"}

@@ -1,5 +1,6 @@
-/* 레이아웃 */
-
+/* =========================================
+   1. 기본 레이아웃 & 테마
+   ========================================= */
 .dashboard-container {
   display: flex;
   height: 100vh;
@@ -23,8 +24,9 @@
   background: white;
 }
 
-/* 사이드바 */
-
+/* =========================================
+   2. 사이드바 스타일
+   ========================================= */
 .sidebar-title {
   font-size: 20px;
   font-weight: 800;
@@ -69,6 +71,13 @@
   padding-left: 8px;
 }
 
+.chat-item-info {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+}
+
 .chat-item {
   padding: 12px 14px;
   border-radius: 10px;
@@ -77,7 +86,6 @@
   font-size: 14px;
   display: flex;
   align-items: center;
-  gap: 14px;
   color: #94a3b8;
   transition: all 0.2s ease;
 }
@@ -93,11 +101,20 @@
   font-weight: 600;
 }
 
-.chat-item span {
+.session-title {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.delete-session-icon {
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.chat-item:hover .delete-session-icon {
+  opacity: 1;
 }
 
 .logout-btn {
@@ -117,8 +134,9 @@
   color: #ef4444;
 }
 
-/* 채팅 */
-
+/* =========================================
+   3. 채팅 메시지 영역
+   ========================================= */
 .message-container {
   flex: 1;
   overflow-y: auto;
@@ -152,58 +170,143 @@
   border-bottom-left-radius: 2px;
 }
 
-/* 파일 업로드 및 입력 */
+.loading-msg {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #64748b;
+  font-size: 14px;
+}
 
+/* =========================================
+   4. 입력 영역 & 드래그 오버레이 (수정됨)
+   ========================================= */
+
+/* 🔥 중요: 오버레이 위치 기준점 설정 */
+.input-area-wrapper {
+  position: relative;
+  padding: 20px 30px;
+  border-top: 1px solid #f1f5f9;
+  background-color: white;
+}
+
+/* 🔥 드래그 앤 드롭 오버레이 스타일 (입력창 영역에만 표시) */
 .drag-overlay {
   position: absolute;
-  inset: 0;
-  background: rgba(15, 118, 110, 0.1);
-  border: 3px dashed var(--bio-primary);
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(15, 118, 110, 0.96); /* 배경색 투명도 조절 */
   z-index: 100;
   display: flex;
   align-items: center;
   justify-content: center;
-  pointer-events: none;
+  backdrop-filter: blur(2px);
+  transition: all 0.3s ease;
+  border-radius: 4px; /* 모서리 살짝 둥글게 */
 }
 
-.file-preview-area {
+.drag-content {
+  text-align: center;
+  color: white;
+  animation: bounce 1.5s infinite;
+  pointer-events: none; /* 드래그 이벤트가 부모로 전달되도록 */
+}
+
+.drag-icon {
+  margin-bottom: 12px;
+  color: #2dd4bf;
+}
+
+.drag-content p {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0;
+}
+
+@keyframes bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+/* =========================================
+   5. 파일 프리뷰 & 입력창 컴포넌트
+   ========================================= */
+
+/* 파일 아이콘 프리뷰 컨테이너 */
+.file-preview-container {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  padding: 10px 30px;
-  background: #fff;
-  border-top: 1px solid #f1f5f9;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 0 5px;
 }
 
-.file-chip {
+/* 파일 아이콘 래퍼 */
+.file-icon-wrapper {
+  position: relative;
+  cursor: pointer;
+}
+
+/* 아이콘 박스 스타일 */
+.file-icon-box {
+  width: 48px;
+  height: 48px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
   display: flex;
   align-items: center;
-  gap: 6px;
-  background: #f1f5f9;
-  padding: 4px 10px;
-  border-radius: 8px;
-  font-size: 12px;
-  border: 1px solid #e2e8f0;
+  justify-content: center;
+  color: #64748b;
+  transition: all 0.2s ease;
 }
 
-.file-chip-remove {
+.file-icon-wrapper:hover .file-icon-box {
+  background: white;
+  border-color: var(--bio-primary);
+  color: var(--bio-primary);
+  transform: translateY(-3px);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+}
+
+/* 삭제 버튼 배지 */
+.file-remove-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  background: #ef4444;
+  color: white;
+  border: none;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
-  color: #ef4444;
-  margin-left: 4px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  transition: transform 0.2s;
 }
 
-.input-area-wrapper {
-  padding: 20px 30px;
-  border-top: 1px solid #f1f5f9;
+.file-remove-badge:hover {
+  transform: scale(1.2);
 }
 
+/* 입력창 컨테이너 */
 .input-box-container {
   display: flex;
   align-items: center;
   background: #f1f5f9;
-  padding: 8px 16px;
+  padding: 8px 18px;
   border-radius: 12px;
-  gap: 12px;
+  gap: 14px;
 }
 
 .main-text-input {
@@ -215,7 +318,47 @@
   font-size: 16px;
 }
 
-/* 애니메이션 */
+.action-icon {
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.action-icon:hover {
+  color: var(--bio-primary);
+  transform: scale(1.1);
+}
+
+.attach-btn-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.icon-send-btn {
+  background: none;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  cursor: pointer;
+}
+
+.icon-send-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.icon-send-btn:disabled .action-icon:hover {
+  transform: none;
+  color: #64748b;
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
 
 @keyframes spin {
   from {
@@ -224,8 +367,4 @@
   to {
     transform: rotate(360deg);
   }
-}
-
-.animate-spin {
-  animation: spin 1s linear infinite;
 }
