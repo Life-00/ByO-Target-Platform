@@ -38,6 +38,11 @@ jobs:
             UPSTAGE_EMBED_MODEL="solar-embedding-1-large" \
             CHROMA_HOST="chroma" \
             CHROMA_PORT="8000" \
+            DB_USER="postgres" \
+            DB_PASSWORD="password" \
+            DB_HOST="db" \
+            DB_PORT="5432" \
+            DB_NAME="tva_db" \
             docker compose up -d --build
 
             echo "[DEPLOY] Done. No .env files created on disk."
