@@ -1,19 +1,43 @@
 /* =========================================
-   1. 기본 레이아웃 & 테마
+   1. 기본 레이아웃 & 반응형 설정
    ========================================= */
 .dashboard-container {
   display: flex;
   height: 100vh;
   background-color: #f8fafc;
+  position: relative;
+  overflow: hidden; /* 슬라이딩 시 스크롤 방지 */
 }
 
+/* 사이드바 기본 스타일 */
 .sidebar {
-  width: 260px;
+  width: 280px; /* 조금 더 넓게 */
   background-color: var(--bio-secondary);
   color: white;
   display: flex;
   flex-direction: column;
   padding: 20px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); /* 부드러운 애니메이션 */
+  z-index: 100;
+  flex-shrink: 0;
+}
+
+/* 사이드바가 닫혔을 때 (데스크톱) */
+.sidebar.closed {
+  margin-left: -320px; /* 화면 밖으로 밀어냄 */
+  width: 0;
+  padding: 20px 0; /* 내용물 숨김 */
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* 모바일 전용 닫기 버튼 (기본 숨김) */
+.mobile-close-btn {
+  display: none;
+  background: none;
+  border: none;
+  color: white;
+  cursor: pointer;
 }
 
 .chat-main {
@@ -22,19 +46,121 @@
   flex-direction: column;
   position: relative;
   background: white;
+  min-width: 0; /* Flex item overflow 방지 */
 }
 
 /* =========================================
-   2. 사이드바 스타일
+   2. 헤더 & 토글 버튼
    ========================================= */
+.chat-header {
+  height: 60px;
+  border-bottom: 1px solid #f1f5f9;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  gap: 15px;
+  background: white;
+}
+
+.sidebar-toggle-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 8px;
+  transition: background 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar-toggle-btn:hover {
+  background-color: #f1f5f9;
+}
+
+.header-title {
+  font-weight: 700;
+  color: #334155;
+  font-size: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* =========================================
+   3. 모바일 반응형 (max-width: 768px)
+   ========================================= */
+@media (max-width: 768px) {
+  /* 사이드바를 화면 위에 띄우는 Drawer 형태로 변경 */
+  .sidebar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: 80%; /* 화면의 80% 차지 */
+    max-width: 300px;
+    box-shadow: 4px 0 15px rgba(0, 0, 0, 0.1);
+    transform: translateX(0);
+  }
+
+  /* 모바일에서 닫혔을 때 */
+  .sidebar.closed {
+    margin-left: 0;
+    transform: translateX(-100%);
+    opacity: 1; /* 투명도가 아닌 위치 이동으로 제어 */
+  }
+
+  /* 모바일 오버레이 (배경 어둡게) */
+  .mobile-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 90;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s;
+  }
+
+  .mobile-overlay.active {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .mobile-close-btn {
+    display: block;
+  }
+
+  .msg-bubble {
+    max-width: 85%; /* 말풍선 더 넓게 */
+    font-size: 14px;
+  }
+
+  .input-area-wrapper {
+    padding: 15px; /* 패딩 줄임 */
+  }
+}
+
+/* =========================================
+   4. 사이드바 내부 스타일 (기존 유지)
+   ========================================= */
+.sidebar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
 .sidebar-title {
   font-size: 20px;
   font-weight: 800;
-  margin-bottom: 10px;
   display: flex;
   align-items: center;
   gap: 12px;
   color: white;
+  white-space: nowrap;
 }
 
 .new-chat-btn {
@@ -50,32 +176,26 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  margin-top: 30px;
-  margin-bottom: 30px;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  margin-bottom: 20px;
+  white-space: nowrap;
   box-shadow: 0 4px 12px rgba(15, 118, 110, 0.2);
 }
 
 .new-chat-btn:hover {
   background-color: #0d615a;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 15px rgba(15, 118, 110, 0.3);
+}
+
+.chat-list {
+  flex: 1;
+  overflow-y: auto;
 }
 
 .chat-list-header {
   font-size: 11px;
   color: #64748b;
   font-weight: 700;
-  letter-spacing: 0.05em;
   margin-bottom: 12px;
   padding-left: 8px;
-}
-
-.chat-item-info {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex: 1;
 }
 
 .chat-item {
@@ -87,7 +207,7 @@
   display: flex;
   align-items: center;
   color: #94a3b8;
-  transition: all 0.2s ease;
+  transition: all 0.2s;
 }
 
 .chat-item:hover {
@@ -101,20 +221,32 @@
   font-weight: 600;
 }
 
-.session-title {
+.chat-item-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   flex: 1;
   overflow: hidden;
-  text-overflow: ellipsis;
+}
+
+.session-title {
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .delete-session-icon {
   opacity: 0;
+  color: #94a3b8;
   transition: opacity 0.2s;
 }
 
 .chat-item:hover .delete-session-icon {
   opacity: 1;
+}
+
+.delete-session-icon:hover {
+  color: #ef4444;
 }
 
 .logout-btn {
@@ -125,9 +257,9 @@
   display: flex;
   align-items: center;
   gap: 14px;
-  margin-top: auto;
+  margin-top: 20px;
   padding: 12px 14px;
-  transition: color 0.2s;
+  white-space: nowrap;
 }
 
 .logout-btn:hover {
@@ -135,31 +267,41 @@
 }
 
 /* =========================================
-   3. 채팅 메시지 영역
+   5. 채팅 메시지 & 입력 영역
    ========================================= */
 .message-container {
   flex: 1;
   overflow-y: auto;
-  padding: 30px;
+  padding: 20px 5%; /* 좌우 여백을 퍼센트로 주어 반응형 대응 */
   display: flex;
   flex-direction: column;
-  gap: 15px;
+  gap: 20px;
+}
+
+.empty-state {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #cbd5e1;
+  gap: 16px;
 }
 
 .msg-bubble {
   max-width: 70%;
-  padding: 12px 16px;
+  padding: 12px 18px;
   border-radius: 18px;
   font-size: 15px;
-  line-height: 1.5;
-  word-break: break-all;
+  line-height: 1.6;
+  word-break: break-word;
 }
 
 .msg-bubble.user {
   align-self: flex-end;
   background-color: var(--bio-primary);
   color: white;
-  border-bottom-right-radius: 2px;
+  border-bottom-right-radius: 4px;
 }
 
 .msg-bubble.ai {
@@ -167,7 +309,7 @@
   background-color: #f1f5f9;
   color: #1e293b;
   border: 1px solid #e2e8f0;
-  border-bottom-left-radius: 2px;
+  border-bottom-left-radius: 4px;
 }
 
 .loading-msg {
@@ -175,138 +317,92 @@
   align-items: center;
   gap: 8px;
   color: #64748b;
-  font-size: 14px;
 }
 
-/* =========================================
-   4. 입력 영역 & 드래그 오버레이 (수정됨)
-   ========================================= */
-
-/* 🔥 중요: 오버레이 위치 기준점 설정 */
+/* 입력 영역 Wrapper */
 .input-area-wrapper {
   position: relative;
   padding: 20px 30px;
-  border-top: 1px solid #f1f5f9;
   background-color: white;
+  border-top: 1px solid #f1f5f9;
 }
 
-/* 🔥 드래그 앤 드롭 오버레이 스타일 (입력창 영역에만 표시) */
+/* 드래그 오버레이 */
 .drag-overlay {
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
-  background: rgba(15, 118, 110, 0.96); /* 배경색 투명도 조절 */
-  z-index: 100;
+  background: rgba(15, 118, 110, 0.95);
+  z-index: 50;
   display: flex;
   align-items: center;
   justify-content: center;
-  backdrop-filter: blur(2px);
-  transition: all 0.3s ease;
-  border-radius: 4px; /* 모서리 살짝 둥글게 */
+  border-radius: 8px;
+  backdrop-filter: blur(4px);
 }
 
 .drag-content {
   text-align: center;
   color: white;
-  animation: bounce 1.5s infinite;
-  pointer-events: none; /* 드래그 이벤트가 부모로 전달되도록 */
+  pointer-events: none;
 }
 
-.drag-icon {
-  margin-bottom: 12px;
-  color: #2dd4bf;
-}
-
-.drag-content p {
-  font-size: 18px;
-  font-weight: 700;
-  margin: 0;
-}
-
-@keyframes bounce {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-8px);
-  }
-}
-
-/* =========================================
-   5. 파일 프리뷰 & 입력창 컴포넌트
-   ========================================= */
-
-/* 파일 아이콘 프리뷰 컨테이너 */
+/* 파일 프리뷰 */
 .file-preview-container {
   display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
+  gap: 10px;
   margin-bottom: 12px;
-  padding: 0 5px;
+  overflow-x: auto;
+  padding-bottom: 4px;
 }
 
-/* 파일 아이콘 래퍼 */
-.file-icon-wrapper {
-  position: relative;
-  cursor: pointer;
-}
-
-/* 아이콘 박스 스타일 */
 .file-icon-box {
-  width: 48px;
-  height: 48px;
-  background: #f1f5f9;
+  position: relative;
+  width: 50px;
+  height: 50px;
+  background: #f8fafc;
   border: 1px solid #e2e8f0;
-  border-radius: 12px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: #64748b;
-  transition: all 0.2s ease;
 }
 
-.file-icon-wrapper:hover .file-icon-box {
-  background: white;
-  border-color: var(--bio-primary);
-  color: var(--bio-primary);
-  transform: translateY(-3px);
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
-}
-
-/* 삭제 버튼 배지 */
 .file-remove-badge {
   position: absolute;
-  top: -6px;
-  right: -6px;
-  width: 18px;
-  height: 18px;
+  top: -5px;
+  right: -5px;
   background: #ef4444;
   color: white;
   border: none;
   border-radius: 50%;
+  width: 18px;
+  height: 18px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-  transition: transform 0.2s;
 }
 
-.file-remove-badge:hover {
-  transform: scale(1.2);
-}
-
-/* 입력창 컨테이너 */
+/* 입력창 */
 .input-box-container {
   display: flex;
   align-items: center;
-  background: #f1f5f9;
-  padding: 8px 18px;
+  background: #f8fafc;
+  padding: 10px 16px;
   border-radius: 12px;
-  gap: 14px;
+  gap: 12px;
+  border: 1px solid transparent;
+  transition: border 0.2s;
+}
+
+.input-box-container:focus-within {
+  border-color: var(--bio-primary);
+  background: white;
+  box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.1);
 }
 
 .main-text-input {
@@ -314,46 +410,32 @@
   border: none;
   background: transparent;
   outline: none;
-  padding: 10px 0;
   font-size: 16px;
+  color: #334155;
 }
 
 .action-icon {
-  color: #64748b;
+  color: #94a3b8;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: color 0.2s;
 }
 
 .action-icon:hover {
   color: var(--bio-primary);
-  transform: scale(1.1);
-}
-
-.attach-btn-wrapper {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
 }
 
 .icon-send-btn {
   background: none;
   border: none;
+  padding: 0;
+  cursor: pointer;
   display: flex;
   align-items: center;
-  justify-content: center;
-  padding: 4px;
-  cursor: pointer;
 }
 
 .icon-send-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.icon-send-btn:disabled .action-icon:hover {
-  transform: none;
-  color: #64748b;
+  opacity: 0.5;
+  cursor: default;
 }
 
 .animate-spin {
