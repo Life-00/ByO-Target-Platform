@@ -1,0 +1,45 @@
+### 구조
+services/pubmed/
+├─ client.py
+├─ parser.py
+└─ service.py
+
+### client.py (외부 시스템과의 통신 전담)
+1) 역할
+NCBI PubMed(Entrez) API 호출
+네트워크 IO 담당
+raw 데이터(MEDLINE text 등) 반환
+
+2) client가 절대 하지 않는 것
+❌ 논문 의미 해석
+❌ 태그 파싱
+❌ Paper 객체 생성
+❌ 조건 판단
+
+### parser.py (raw 데이터 해석 전담)
+1) 역할
+MEDLINE 텍스트 파싱
+논문 메타데이터 추출 (제목, 연도, 저널, abstract)
+abstract 문장 분리
+내부 스키마(Paper)로 변환
+
+2) parser 특징
+외부 API 호출 ❌
+Agent 상태 접근 ❌
+순수 함수
+테스트 용이
+
+### service.py (유스케이스 단위 조합)
+1) 역할
+UserQuery를 받아 검색어 구성
+client + parser를 조합
+최종 결과를 PaperCorpus로 반환
+
+2) service의 책임 범위
+“PubMed에서 논문을 검색한다”라는 하나의 유스케이스만 담당
+전략 결정 ❌
+실패 판단 ❌
+재시도 ❌
+
+3) service가 반환하는 것
+=> 반드시 Schema 객체(PaperCorpus)
