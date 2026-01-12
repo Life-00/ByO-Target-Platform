@@ -60,10 +60,9 @@ ai/
 │  │  │   ├─ test_orchestrator_pipeline.py
 │  │  │   ├─ test_extractor_agent.py
 │  │  │   ├─ test_validator_agent.py
-│  │  │    └─ test_synthesizer_agent.py
+│  │  │   └─ test_synthesizer_agent.py
 │  │  └─ chromadb/                   # chromadb 적재 테스트 진행
-│  │      ├─ test_chromadb_ingestion.py
-│  │ 
+│  │      └─ test_chromadb_ingestion.py
 │  │                    
 │  └─ main.py                         # 애플리케이션 main (run 함수)
 │
