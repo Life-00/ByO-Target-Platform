@@ -8,7 +8,7 @@ def test_retriever_returns_paper_corpus():
         query_id="test",
         target="EGFR",
         disease="lung cancer",
-        question="Is EGFR a valid therapeutic target?"
+        research_question="Is EGFR a valid therapeutic target?"
     )
 
     corpus = agent.run(uq)

@@ -12,9 +12,9 @@ class ValidatorAgent:
         """
         Main entry point using LangGraph.
         """
-        init_state = {
-            "fact_set": fact_set
-        }
-        
+        if isinstance(fact_set, list):
+            fact_set = FactSet(facts=fact_set)
+
+        init_state = {"fact_set": fact_set}
         final_state = self.graph.invoke(init_state)
         return final_state["validated_claims"]

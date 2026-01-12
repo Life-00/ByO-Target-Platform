@@ -7,6 +7,7 @@ from typing import List, Dict, Any
 from app.schemas.claim import ValidatedClaims, ValidatedClaim, EvidenceItem, RiskSignal
 from app.agents.validator.state import ValidatorState
 from app.agents.validator.internal_models import CanonicalClaim, Polarity, EvidenceLevel
+from app.schemas.fact import FactSet
 
 # Configuration
 RISK_KEYWORDS = {
@@ -32,6 +33,10 @@ RISK_KEYWORDS = {
 def node_ingest(state: ValidatorState) -> ValidatorState:
     """Ingest Facts and normalize to CanonicalClaims"""
     fact_set = state["fact_set"]
+
+    if isinstance(fact_set, list):
+        fact_set = FactSet(facts=fact_set)
+
     canonical_claims = [CanonicalClaim(f) for f in fact_set.facts]
     state["canonical_claims"] = canonical_claims
     return state
@@ -98,9 +103,13 @@ def _synthesize_single_cluster(key: tuple, group: List[CanonicalClaim]) -> Valid
         for risk_type, keywords in risk_hits.items():
             aggregated_risks.setdefault(risk_type, set()).update(keywords)
 
-    risk_signals = {
-        k: sorted(v) for k, v in aggregated_risks.items()
-    }
+    risk_signals = [
+        RiskSignal(
+            type=risk_type,
+            keywords=sorted(list(keywords))
+        )
+        for risk_type, keywords in aggregated_risks.items()
+    ]
 
     # 4. Construct
     normalized_text = f"{subj} {rel} {obj}".strip()

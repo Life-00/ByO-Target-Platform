@@ -11,6 +11,10 @@ class ExtractorAgent:
         self.graph = build_extractor_graph()
 
     def run(self, corpus: PaperCorpus) -> FactSet:
+
+        if isinstance(corpus, list):
+            corpus = PaperCorpus(query_id="test", papers=corpus)
+
         init_state = {
             "papers": corpus.papers,
             "extracted_facts": [],

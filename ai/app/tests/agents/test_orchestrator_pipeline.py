@@ -9,7 +9,7 @@ def test_orchestrator_full_pipeline():
         query_id="test",
         target="EGFR",
         disease="lung cancer",
-        question="Is EGFR a valid therapeutic target?"
+        research_question="Is EGFR a valid therapeutic target?"
     )
 
     state = agent.run(user_query=uq)

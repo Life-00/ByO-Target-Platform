@@ -69,6 +69,11 @@ class OrchestratorAgent:
     def run(self,
             facts: Optional[FactSet] = None,
             user_query: Optional[UserQuery] = None,) -> OrchestratorState:
+        # user_query가 여러 step에서 중복 write 가능
+        # -> Orchestrator에서 user_query는 READ ONLY (명시적 보호)
+        if not facts and not user_query:
+            raise ValueError("Either facts or user_query must be provided")
+
         initial_state: OrchestratorState = {
             "facts": facts,
             "user_query": user_query,
@@ -81,22 +86,22 @@ class OrchestratorAgent:
     # Nodes
     # ==================================================
     def node_retrieve(self, state: OrchestratorState) -> OrchestratorState:
-        """
-        Retriever node
-        - facts가 이미 있으면 skip
-        - 없으면 user_query를 이용해 retrieval 수행
-        """
-        if state.get("facts"):
-            return state  # 이미 facts가 있으면 그대로 진행
+        if state.get("need_more_retrieval"):
+            state["retrieval_round"] += 1
 
         user_query = state.get("user_query")
         if user_query is None:
-            raise ValueError("Retriever reached without facts or user_query")
+            raise ValueError("Retriever reached without user_query")
 
         paper_corpus = self.retriever.run(user_query)
         state["paper_corpus"] = paper_corpus
 
+        # 재검색 플래그 리셋
+        state["need_more_retrieval"] = False
+        state["retrieval_hint"] = None
+
         return state
+
 
     def node_extract(self, state: OrchestratorState) -> OrchestratorState:
         """
@@ -155,10 +160,11 @@ class OrchestratorAgent:
                     need_more = True
                     reasons.append("conflicting_or_insufficient_evidence")
 
-                # Risk-based decision (structure: Dict[str, List[str]])
-                if "efficacy_failure" in claim.risk_signals:
-                    need_more = True
-                    reasons.append("efficacy_failure_signal")
+                # Risk-based decision (List[RiskSignal])
+                for risk in claim.risk_signals:
+                    if risk.type == "efficacy_failure":
+                        need_more = True
+                        reasons.append("efficacy_failure_signal")
 
         state["need_more_retrieval"] = need_more
 
@@ -204,20 +210,18 @@ class OrchestratorAgent:
         g.add_edge("extract", "validate")
         g.add_edge("validate", "decide")
 
+        g.add_node("synthesize", self.node_synthesize)
         g.add_conditional_edges(
             "decide",
             self._route_after_decide,
             {
                 "retrieve": "retrieve",
-                "end": END,
+                "synthesize": "synthesize",
             }
         )
-
-        g.add_node("synthesize", self.node_synthesize)
-        g.add_edge("decide", "synthesize")
         g.add_edge("synthesize", END)
 
-        return g
+        return g.compile()
 
     # ==================================================
     # Helpers
@@ -242,9 +246,10 @@ class OrchestratorAgent:
             elif c.consistency == "insufficient":
                 summary["n_insufficient"] += 1
 
-            for risk_type, keywords in c.risk_signals.items():
-                summary["risk_counts"].setdefault(risk_type, 0)
-                summary["risk_counts"][risk_type] += len(keywords)
+            for rs in c.risk_signals:
+                summary["risk_counts"][rs.type] = (
+                        summary["risk_counts"].get(rs.type, 0) + len(rs.keywords)
+                )
 
         return summary
 
@@ -255,13 +260,9 @@ class OrchestratorAgent:
         """
         Decide next step after validation.
         """
-        MAX_RETRIEVAL_ROUNDS = 2  # 안전장치
+        MAX_RETRIEVAL_ROUNDS = 3  # 안전장치
 
-        if state.get("need_more_retrieval"):
-            round_ = state.get("retrieval_round", 0)
+        if state.get("need_more_retrieval") and state.get("retrieval_round", 0) < MAX_RETRIEVAL_ROUNDS:
+            return "retrieve"
 
-            if round_ < MAX_RETRIEVAL_ROUNDS:
-                state["retrieval_round"] = round_ + 1
-                return "retrieve"
-
-        return "end"
+        return "synthesize"
