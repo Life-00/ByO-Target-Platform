@@ -31,11 +31,11 @@ jobs:
 
             VITE_API_BASE_URL="http://${{ secrets.EC2_HOST }}:8000/api/v1" \
             UPSTAGE_API_KEY="${{ secrets.UPSTAGE_API_KEY }}" \
-            DATABASE_URL="${{ secrets.DATABASE_URL }}" \
-            JWT_SECRET_KEY="${{ secrets.JWT_SECRET_KEY }}" \
             UPSTAGE_BASE_URL="https://api.upstage.ai/v1" \
             UPSTAGE_MODEL="solar-pro2" \
             UPSTAGE_EMBED_MODEL="solar-embedding-1-large" \
+            DATABASE_URL="${{ secrets.DATABASE_URL }}" \
+            JWT_SECRET_KEY="${{ secrets.JWT_SECRET_KEY }}" \
             CHROMA_HOST="chroma" \
             CHROMA_PORT="8000" \
             DB_USER="postgres" \
