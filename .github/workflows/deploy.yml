@@ -21,30 +21,36 @@ jobs:
             TARGET_DIR="workspace/TVA_test"
             cd $TARGET_DIR
 
-            # 1. 최신 코드 반영
+            # 1. 코드 업데이트
             git fetch --all
             git reset --hard origin/main
 
-            # 2. 기존의 꼬인 설정 제거 (환경 변수 갱신을 위해 필수)
+            # 2. 기존 컨테이너 및 꼬인 환경 설정 삭제
+            echo "[DEPLOY] Cleaning up old containers..."
             docker compose down
 
-            # 3. Secrets를 런타임 변수로 주입하며 실행
-            # 이 방식은 서버에 .env 파일을 남기지 않아 보안에 가장 좋습니다.
+            # 3. 모든 값을 GitHub Secrets에서 셸 변수로 주입 (보안 최강화)
+            echo "[DEPLOY] Injecting all secrets including DB info..."
+
             VITE_API_BASE_URL="http://${{ secrets.EC2_HOST }}:8000/api/v1" \
             UPSTAGE_API_KEY="${{ secrets.UPSTAGE_API_KEY }}" \
-            UPSTAGE_BASE_URL="https://api.upstage.ai/v1" \
-            UPSTAGE_MODEL="solar-pro2" \
-            UPSTAGE_EMBED_MODEL="solar-embedding-1-large" \
+            UPSTAGE_BASE_URL="${{ secrets.UPSTAGE_BASE_URL }}" \
+            UPSTAGE_MODEL="${{ secrets.UPSTAGE_MODEL }}" \
+            UPSTAGE_EMBED_MODEL="${{ secrets.UPSTAGE_EMBED_MODEL }}" \
             DATABASE_URL="${{ secrets.DATABASE_URL }}" \
             JWT_SECRET_KEY="${{ secrets.JWT_SECRET_KEY }}" \
             CHROMA_HOST="chroma" \
             CHROMA_PORT="8000" \
-            DB_USER="postgres" \
-            DB_PASSWORD="password" \
-            DB_HOST="db" \
-            DB_PORT="5432" \
-            DB_NAME="tva_db" \
+            DB_USER="${{ secrets.DB_USER }}" \
+            DB_PASSWORD="${{ secrets.DB_PASSWORD }}" \
+            DB_HOST="${{ secrets.DB_HOST }}" \
+            DB_PORT="${{ secrets.DB_PORT }}" \
+            DB_NAME="${{ secrets.DB_NAME }}" \
             docker compose up -d --build --force-recreate
 
-            echo "[DEPLOY] Secrets successfully injected via Shell."
+            # 4. 사용하지 않는 이미지 삭제 (용량 확보)
+            echo "[DEPLOY] Removing unused images..."
+            docker image prune -af
+
+            echo "[DEPLOY] Done. Checking status:"
             docker ps
