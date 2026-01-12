@@ -7,6 +7,10 @@ from langgraph.graph import StateGraph, END
 
 from app.schemas.fact import FactSet
 from app.schemas.claim import ValidatedClaims
+from app.schemas.paper import PaperCorpus
+from app.schemas.user_query import UserQuery
+
+from app.agents.retriever.agent import RetrieverAgent
 from app.agents.extractor.agent import ExtractorAgent
 from app.agents.validator.agent import ValidatorAgent
 
@@ -16,7 +20,11 @@ from app.agents.validator.agent import ValidatorAgent
 # ======================================================
 class OrchestratorState(TypedDict, total=False):
     # Input
+    user_query: UserQuery
     facts: FactSet
+
+    # Intermediate
+    paper_corpus: PaperCorpus
 
     # Output
     validated_claims: ValidatedClaims
@@ -24,6 +32,9 @@ class OrchestratorState(TypedDict, total=False):
     # Flow control
     need_more_retrieval: bool
     retrieval_hint: Optional[str]
+
+    # 재검색
+    retrieval_round: int
 
     # For dialogue / summary
     validation_summary: Dict
@@ -43,6 +54,7 @@ class OrchestratorAgent:
     """
 
     def __init__(self):
+        self.retriever = RetrieverAgent()
         self.extractor = ExtractorAgent()
         self.validator = ValidatorAgent()
         self.graph = self._build_graph()
@@ -53,31 +65,67 @@ class OrchestratorAgent:
     def _build_graph(self) -> StateGraph:
         g = StateGraph(OrchestratorState)
 
+        g.add_node("retrieve", self.node_retrieve)
         g.add_node("extract", self.node_extract)
         g.add_node("validate", self.node_validate)
         g.add_node("decide", self.node_decide)
 
-        g.set_entry_point("extract")
+        g.set_entry_point("retrieve")
 
+        g.add_edge("retrieve", "extract")
         g.add_edge("extract", "validate")
         g.add_edge("validate", "decide")
-        g.add_edge("decide", END)
+
+        g.add_conditional_edges(
+            "decide",
+            self._route_after_decide,
+            {
+                "retrieve": "retrieve",
+                "end": END,
+            }
+        )
 
         return g
 
     # ==================================================
     # Public entry point
     # ==================================================
-    def run(self, facts: FactSet) -> OrchestratorState:
+    def run(self,
+            facts: Optional[FactSet] = None,
+            user_query: Optional[UserQuery] = None,) -> OrchestratorState:
         initial_state: OrchestratorState = {
             "facts": facts,
+            "user_query": user_query,
             "need_more_retrieval": False,
+            "retrieval_round": 0,
         }
         return self.graph.invoke(initial_state)
 
     # ==================================================
     # Nodes
     # ==================================================
+    def node_retrieve(self, state: OrchestratorState) -> OrchestratorState:
+        """
+        Retriever node
+        - facts가 이미 있으면 skip
+        - 없으면 user_query를 이용해 retrieval 수행
+        """
+        if state.get("facts"):
+            return state  # 이미 facts가 있으면 그대로 진행
+
+        user_query = state.get("user_query")
+        if user_query is None:
+            raise ValueError("Retriever reached without facts or user_query")
+
+        paper_corpus = self.retriever.run(user_query)
+        state["paper_corpus"] = paper_corpus
+
+        # Extractor 입력용 facts 생성
+        facts = self.extractor.run(paper_corpus)
+        state["facts"] = facts
+
+        return state
+
     def node_extract(self, state: OrchestratorState) -> OrchestratorState:
         """
         Extractor node
@@ -145,6 +193,7 @@ class OrchestratorAgent:
 
         return state
 
+
     # ==================================================
     # Helpers
     # ==================================================
@@ -174,3 +223,20 @@ class OrchestratorAgent:
 
         return summary
 
+    # ==================================================
+    # 재검색
+    # ==================================================
+    MAX_RETRIEVAL_ROUNDS = 2  # 안전장치
+
+    def _route_after_decide(self, state: OrchestratorState) -> str:
+        """
+        Decide next step after validation.
+        """
+        if state.get("need_more_retrieval"):
+            round_ = state.get("retrieval_round", 0)
+
+            if round_ < MAX_RETRIEVAL_ROUNDS:
+                state["retrieval_round"] = round_ + 1
+                return "retrieve"
+
+        return "end"

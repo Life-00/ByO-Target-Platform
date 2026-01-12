@@ -1,8 +1,9 @@
 # app/services/pubmed/client.py
 from typing import List
 from Bio import Entrez
+from app.config.env import NCBI_EMAIL
 
-Entrez.email = "twilight3596@gmail.com"
+Entrez.email = NCBI_EMAIL
 
 
 def search_pmids(query: str, retmax: int) -> List[str]:
