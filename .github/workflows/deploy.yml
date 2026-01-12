@@ -21,14 +21,18 @@ jobs:
             TARGET_DIR="workspace/TVA_test"
             cd $TARGET_DIR
 
-            # 1. 코드 업데이트 (파일이 아닌 소스만 동기화)
+            # 1. 소스코드 강제 동기화
             git fetch --all
             git reset --hard origin/main
 
-            # 2. Secrets 값을 환경 변수로 불러와서 도커에 직접 주입
-            # 파일 생성 단계 없이 바로 실행합니다.
-            echo "[DEPLOY] Injecting Secrets directly into Docker..."
+            # 2. 기존의 꼬인 컨테이너와 네트워크 완전히 삭제 (핵심)
+            docker compose down
 
+            # 3. 빌드 캐시 삭제 (혹시 모를 이미지 꼬임 방지)
+            docker system prune -f
+
+            # 4. 환경 변수 주입하며 처음부터 다시 빌드 및 실행
+            # 줄 끝에 \ 가 빠지면 안 됩니다!
             VITE_API_BASE_URL="http://${{ secrets.EC2_HOST }}:8000/api/v1" \
             UPSTAGE_API_KEY="${{ secrets.UPSTAGE_API_KEY }}" \
             UPSTAGE_BASE_URL="https://api.upstage.ai/v1" \
@@ -43,7 +47,7 @@ jobs:
             DB_HOST="db" \
             DB_PORT="5432" \
             DB_NAME="tva_db" \
-            docker compose up -d --build
+            docker compose up -d --build --force-recreate
 
-            echo "[DEPLOY] Done. No .env files created on disk."
+            echo "[DEPLOY] Done. Checking status..."
             docker ps
