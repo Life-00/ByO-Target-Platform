@@ -5,6 +5,7 @@
 # app/main.py
 from app.agents.dialogue.agent import DialogueAgent
 from app.schemas.message import UserMessage
+from app.config import env
 
 
 def run():
