@@ -70,6 +70,9 @@ services:
       CHROMA_HOST: ${CHROMA_HOST:-chroma}
       CHROMA_PORT: ${CHROMA_PORT:-8000}
 
+      ports:
+        - 8000:8000
+
   frontend:
     image: tva-frontend
     build:
