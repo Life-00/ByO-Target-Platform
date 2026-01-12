@@ -21,36 +21,34 @@ jobs:
             TARGET_DIR="workspace/TVA_test"
             cd $TARGET_DIR
 
-            # 1. 코드 업데이트
+            # 1. 코드 업데이트 및 기존 컨테이너 정리
             git fetch --all
             git reset --hard origin/main
-
-            # 2. 기존 컨테이너 및 꼬인 환경 설정 삭제
-            echo "[DEPLOY] Cleaning up old containers..."
             docker compose down
 
-            # 3. 모든 값을 GitHub Secrets에서 셸 변수로 주입 (보안 최강화)
-            echo "[DEPLOY] Injecting all secrets including DB info..."
+            # 2. 모든 Secrets를 export로 확실하게 선언 (이 방식이 가장 안전합니다)
+            export VITE_API_BASE_URL="http://${{ secrets.EC2_HOST }}:8000/api/v1"
+            export UPSTAGE_API_KEY="${{ secrets.UPSTAGE_API_KEY }}"
+            export UPSTAGE_BASE_URL="${{ secrets.UPSTAGE_BASE_URL }}"
+            export UPSTAGE_MODEL="${{ secrets.UPSTAGE_MODEL }}"
+            export UPSTAGE_EMBED_MODEL="${{ secrets.UPSTAGE_EMBED_MODEL }}"
+            export DATABASE_URL="${{ secrets.DATABASE_URL }}"
+            export JWT_SECRET_KEY="${{ secrets.JWT_SECRET_KEY }}"
+            export CHROMA_HOST="chroma"
+            export CHROMA_PORT="8000"
+            export DB_USER="${{ secrets.DB_USER }}"
+            export DB_PASSWORD="${{ secrets.DB_PASSWORD }}"
+            export DB_HOST="${{ secrets.DB_HOST }}"
+            export DB_PORT="${{ secrets.DB_PORT }}"
+            export DB_NAME="${{ secrets.DB_NAME }}"
 
-            VITE_API_BASE_URL="http://${{ secrets.EC2_HOST }}:8000/api/v1" \
-            UPSTAGE_API_KEY="${{ secrets.UPSTAGE_API_KEY }}" \
-            UPSTAGE_BASE_URL="${{ secrets.UPSTAGE_BASE_URL }}" \
-            UPSTAGE_MODEL="${{ secrets.UPSTAGE_MODEL }}" \
-            UPSTAGE_EMBED_MODEL="${{ secrets.UPSTAGE_EMBED_MODEL }}" \
-            DATABASE_URL="${{ secrets.DATABASE_URL }}" \
-            JWT_SECRET_KEY="${{ secrets.JWT_SECRET_KEY }}" \
-            CHROMA_HOST="chroma" \
-            CHROMA_PORT="8000" \
-            DB_USER="${{ secrets.DB_USER }}" \
-            DB_PASSWORD="${{ secrets.DB_PASSWORD }}" \
-            DB_HOST="${{ secrets.DB_HOST }}" \
-            DB_PORT="${{ secrets.DB_PORT }}" \
-            DB_NAME="${{ secrets.DB_NAME }}" \
+            # 3. 위에서 export된 변수들을 가지고 도커 실행
+            echo "[DEPLOY] Starting containers with exported secrets..."
             docker compose up -d --build --force-recreate
 
-            # 4. 사용하지 않는 이미지 삭제 (용량 확보)
-            echo "[DEPLOY] Removing unused images..."
+            # 4. 이미지 정리 (요청하신 기능)
+            echo "[DEPLOY] Cleaning up unused images..."
             docker image prune -af
 
-            echo "[DEPLOY] Done. Checking status:"
+            echo "[DEPLOY] Status check:"
             docker ps
