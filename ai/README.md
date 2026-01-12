@@ -3,49 +3,52 @@
 ai/
 ├─ app/
 │  ├─ agents/
-│  │  ├─ dialogue/                      # LangGraph 기반 중앙 에이전트
+│  │  ├─ dialogue/                    # LangGraph 기반 중앙 에이전트
 │  │  │  ├─ agent.py                  # DialogueAgent (parse → route → run)
-│  │  │  ├─ state.py                   # DialogueState
-│  │  │  └─ prompt.py                # 아직 미사용
+│  │  │  └─ state.py                  # DialogueState
 │  │  │
-│  │  ├─ orchestrator/                 # LangGraph 기반 파이프라인 제어
+│  │  ├─ orchestrator/                # LangGraph 기반 파이프라인 제어
 │  │  │  └─ agent.py                  # OrchestratorAgent
 │  │  │
-│  │  ├─ extractor/                     # LangGraph 기반 Extractor
-│  │  │  ├─ agent.py                  # ExtractorAgent (graph invoke)
+│  │  ├─ extractor/                   # LangGraph 기반 Extractor
+│  │  │  ├─ agent.py                  # ExtractorAgent
 │  │  │  ├─ graph.py                  # LangGraph 정의
-│  │  │  ├─ state.py                   # ExtractorState
-│  │  │  └─ nodes.py                 # iterate / entity / experiment / relation / assemble
+│  │  │  ├─ state.py                  # ExtractorState
+│  │  │  └─ nodes.py                  # iterate / entity / experiment / relation / assemble
 │  │  │
-│  │  ├─ retriever/
-│  │  │  └─ agent.py
+│  │  ├─ retriever/                   # LangGraph 기반 Retriever
+│  │  │  ├─ agent.py                  # RetrieverAgent
+│  │  │  └─ state.py                  # RetrieverState 
 │  │  │
-│  │  ├─ validator/
-│  │  │  └─ agent.py
+│  │  ├─ validator/                   # LangGraph 기반 Validator
+│  │  │  ├─ agent.py                  # ValidatorAgent
+│  │  │  ├─ graph.py                  # LangGraph 정의
+│  │  │  ├─ state.py                  # ValidatorState
+│  │  │  └─ nodes.py                  # canonicalization / clustering / evidence aggregation / risk signal detection
 │  │  │   
 │  │  └─ synthesizer/
-│  │      └─ agent.py                      
+│  │      └─ agent.py                 # SynthesizerAgent                     
 │  │
-│  ├─ schemas/                           # 스키마 고정
+│  ├─ schemas/                        # 스키마 고정
 │  │  ├─ user_query.py                # UserQuery, SearchConstraints
-│  │  ├─ paper.py                      # Paper, PaperCorpus
-│  │  ├─ fact.py                        # Fact, FactSet
-│  │  ├─ claim.py                      # ValidatedClaim(s)
+│  │  ├─ paper.py                     # Paper, PaperCorpus
+│  │  ├─ fact.py                      # Fact, FactSet
+│  │  ├─ claim.py                     # ValidatedClaim(s)
 │  │  ├─ dossier.py                   # TargetDossier
-│  │  └─ message.py                 # UserMessage, SystemResponse
+│  │  └─ message.py                   # UserMessage, SystemResponse
 │  │
 │  ├─ services/
 │  │  └─ pubmed/                      # Service layer (Agent 아님)
-│  │     ├─ client.py                    # PubMed API 호출
-│  │     ├─ parser.py                   # abstract → sentence 분해
-│  │     └─ service.py                  # search_pubmed()
+│  │     ├─ client.py                 # PubMed API 호출
+│  │     ├─ parser.py                 # abstract → sentence 분해
+│  │     └─ service.py                # search_pubmed()
 │  │
 │  ├─ config/
-│  │  └─ env.py                        # api key 설정
+│  │  └─ env.py                       # api key 설정
 │  │                    
 │  └─ main.py                         # 애플리케이션 main (run 함수)
 │
-├─ main.py                             # 실행용 entrypoint (wrapper)
+├─ main.py                            # 실행용 entrypoint (wrapper)
 ├─ .env				     # api key 등록 (형식은 .env_example 확인)
 ├─ .gitignore
 ├─ pyproject.toml
