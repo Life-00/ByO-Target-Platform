@@ -49,7 +49,7 @@ ai/
 │  └─ main.py                         # 애플리케이션 main (run 함수)
 │
 ├─ main.py                            # 실행용 entrypoint (wrapper)
-├─ .env				     # api key 등록 (형식은 .env_example 확인)
+├─ .env				                  # api key 등록 (형식은 .env_example 확인)
 ├─ .gitignore
 ├─ pyproject.toml
 ├─ uv.lock
