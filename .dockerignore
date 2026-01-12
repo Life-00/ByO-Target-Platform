@@ -1,0 +1,31 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.pytest_cache/
+.history/
+
+# Node.js (Frontend)
+frontend/node_modules/
+frontend/dist/
+.npm/
+
+# Environment & Secrets
+.env
+*.local
+
+# Docker & OS
+.dockerignore
+docker-compose*.yml
+.DS_Store
+Thumbs.db
+
+# Project Specific
+backend/uploads/
+backend/chroma_db/

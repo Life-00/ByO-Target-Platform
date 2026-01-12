@@ -1,0 +1,50 @@
+services:
+  # 1. 로컬 DB (생성만 해둠, 백엔드에서 사용 안 함)
+  db:
+    image: postgres:15
+    container_name: bio-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: tva_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # 2. 벡터 DB (도커 내부 사용)
+  chroma:
+    image: chromadb/chroma:latest
+    container_name: bio-chroma
+    ports:
+      - "8001:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+      - ANONYMIZED_TELEMETRY=FALSE
+
+  # 3. 백엔드
+  backend:
+    build: ./backend
+    container_name: bio-backend
+    depends_on:
+      - chroma # 이제 db 의존성은 없어도 됩니다 (외부 연결이므로)
+    ports:
+      - "8000:8000"
+    env_file: .env # 여기서 Supabase 주소가 담긴 .env를 읽습니다.
+    volumes:
+      - ./backend/uploads:/app/uploads
+
+  # 4. 프론트엔드
+  frontend:
+    build: ./frontend
+    container_name: bio-frontend
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+
+volumes:
+  postgres_data:
+  chroma_data:

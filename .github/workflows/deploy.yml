@@ -1,0 +1,41 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Deploy to EC2 via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd ByO-Target-Platform
+            git pull origin main
+
+            # 1. 프론트엔드 빌드를 위한 환경 변수 설정 (.env 파일 생성)
+            # 브라우저에서 접근해야 하므로 localhost 대신 EC2의 공인 IP를 주입합니다.
+            echo "VITE_API_BASE_URL=http://${{ secrets.EC2_HOST }}:8000/api/v1" > frontend/.env
+
+            # 2. 백엔드 실행을 위한 환경 변수 주입 및 실행
+            # 백엔드 변수들은 디스크에 남기지 않고 명령줄 인자로만 주입합니다.
+            UPSTAGE_API_KEY=${{ secrets.UPSTAGE_API_KEY }} \
+            DATABASE_URL=${{ secrets.DATABASE_URL }} \
+            JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }} \
+            UPSTAGE_BASE_URL=https://api.upstage.ai/v1 \
+            UPSTAGE_MODEL=solar-pro2 \
+            UPSTAGE_EMBED_MODEL=solar-embedding-1-large \
+            CHROMA_HOST=chroma \
+            CHROMA_PORT=8000 \
+            docker-compose up -d --build
+
+            # 3. 빌드 후 남은 임시 환경변수 파일 삭제 (보안)
+            rm frontend/.env
