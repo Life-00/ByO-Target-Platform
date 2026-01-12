@@ -36,8 +36,16 @@ class CanonicalClaim:
         self.original_fact = fact
         self.subj = self._extract_subject(fact)
         self.obj = self._extract_object(fact)
-        self.relation_type = fact.relation.type.lower()
-        self.polarity = self._normalize_polarity(self.relation_type)
+        raw_rel = fact.relation.type.lower()
+        self.polarity = self._normalize_polarity(raw_rel)
+
+        # relatation_family
+        if raw_rel in ("increase", "decrease"):
+            self.relation_type = "regulation"
+        elif raw_rel in ("association", "no_effect"):
+            self.relation_type = raw_rel
+        else:
+            self.relation_type = "unknown"
         self.evidence_level = self._normalize_stage(fact.experiment.model)
         self.id = self._compute_id()
 
@@ -46,18 +54,26 @@ class CanonicalClaim:
         return (self.subj, self.obj, self.relation_type)
 
     def _extract_subject(self, fact) -> str:
-        if fact.entities.target:
-            return fact.entities.target[0].lower().strip()
-        if fact.entities.compound:
-            return fact.entities.compound[0].lower().strip()
+        compounds = getattr(fact.entities, "compound", None) or []
+        if compounds:
+            return compounds[0].lower().strip()
+        targets = getattr(fact.entities, "target", None) or []
+        if targets:
+            return targets[0].lower().strip()
         return "unknown_subject"
 
     def _extract_object(self, fact) -> str:
-        if fact.relation.object:
-            return fact.relation.object.lower().strip()
-        if fact.entities.disease:
-             return fact.entities.disease[0].lower().strip()
+        rel_obj = getattr(fact.relation, "object", None)
+        if rel_obj:
+            return rel_obj.lower().strip()
+        targets = getattr(fact.entities, "target", None) or []
+        if targets:
+            return targets[0].lower().strip()
+        diseases = getattr(fact.entities, "disease", None) or []
+        if diseases:
+            return diseases[0].lower().strip()
         return "unknown_object"
+
 
     def _normalize_polarity(self, rel_type: str) -> Polarity:
         rel = rel_type.lower()
