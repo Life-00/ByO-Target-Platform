@@ -1,113 +1,176 @@
-# app/agents/orchestrator/agent.py
-from __future__ import annotations
+# 현재 진행된 agent 부분까지만 적용
+# LangGraph 사용
 
-import uuid
-from typing import TypedDict
+from typing import TypedDict, Optional, Dict, List
 
 from langgraph.graph import StateGraph, END
 
-from app.schemas.user_query import UserQuery
-from app.schemas.paper import PaperCorpus
 from app.schemas.fact import FactSet
 from app.schemas.claim import ValidatedClaims
-from app.schemas.dossier import TargetDossier, DossierSection
-
-from app.services.pubmed.service import search_pubmed  # service layer
 from app.agents.extractor.agent import ExtractorAgent
 from app.agents.validator.agent import ValidatorAgent
 
 
+# ======================================================
+# Orchestrator State
+# ======================================================
 class OrchestratorState(TypedDict, total=False):
-    user_query: UserQuery
-    corpus: PaperCorpus
+    # Input
     facts: FactSet
+
+    # Output
     validated_claims: ValidatedClaims
-    dossier: TargetDossier
+
+    # Flow control
+    need_more_retrieval: bool
+    retrieval_hint: Optional[str]
+
+    # For dialogue / summary
+    validation_summary: Dict
 
 
-def node_retrieve(state: OrchestratorState) -> OrchestratorState:
-    uq = state["user_query"]
-    corpus = search_pubmed(uq)  # PaperCorpus 반환하도록 service를 맞추는 것을 권장
-    state["corpus"] = corpus
-    return state
-
-
-def node_extract(state: OrchestratorState) -> OrchestratorState:
-    extractor = ExtractorAgent()
-    facts = extractor.run(state["corpus"])
-    state["facts"] = facts
-    return state
-
-
-def node_validate(state: OrchestratorState) -> OrchestratorState:
-    validator = ValidatorAgent()
-    validated = validator.run(state["facts"])
-    state["validated_claims"] = validated
-    return state
-
-
-def node_synthesize(state: OrchestratorState) -> OrchestratorState:
-    """
-    MVP synthesizer: FactSet을 그대로 '근거 요약(아주 단순)' 형태로 넣는다.
-    (실제 SynthesizerAgent로 교체 예정)
-    """
-    uq = state["user_query"]
-    validated = state.get("validated_claims")
-    
-    if not validated or not validated.claims:
-        text_lines = ["- 검증된 주장이 없습니다."]
-        citations = []
-    else:
-        # ValidatedClaim 기반으로 섹션 구성
-        text_lines = []
-        citations = []
-        for vc in validated.claims:
-            # Evidence summary
-            ev_str = ", ".join([f"{k}:{v}" for k, v in vc.evidence_summary.items() if v > 0])
-            line = f"### {vc.normalized_claim}\n- Consistency: {vc.consistency}\n- Evidence: {ev_str}"
-            
-            # Risk Signals
-            if vc.risk_signals:
-                risks = [f"{r.type} (severity: Medium)" for r in vc.risk_signals]
-                line += f"\n- ⚠️ Risks: {', '.join(risks)}"
-            
-            text_lines.append(line)
-            citations.extend([ev.pmid for ev in vc.evidence])
-
-    citations = list(set(citations))
-
-    dossier = TargetDossier(
-        dossier_id=str(uuid.uuid4()),
-        target=uq.target,
-        sections={
-            "KeyFacts": [DossierSection(text="\n".join(text_lines), citations=pmids)]
-        },
-        format="markdown",
-    )
-    state["dossier"] = dossier
-    return state
-
-
-def build_orchestrator_graph():
-    g = StateGraph(OrchestratorState)
-    g.add_node("retrieve", node_retrieve)
-    g.add_node("extract", node_extract)
-    g.add_node("validate", node_validate)
-    g.add_node("synthesize", node_synthesize)
-
-    g.set_entry_point("retrieve")
-    g.add_edge("retrieve", "extract")
-    g.add_edge("extract", "validate")
-    g.add_edge("validate", "synthesize")
-    g.add_edge("synthesize", END)
-
-    return g.compile()
-
-
+# ======================================================
+# Orchestrator Agent
+# ======================================================
 class OrchestratorAgent:
-    def __init__(self):
-        self.graph = build_orchestrator_graph()
+    """
+    OrchestratorAgent
+    -----------------
+    - Agent execution order control
+    - Validator input validation
+    - Validation result interpretation
+    - Decision for next step (proceed vs. re-retrieval)
+    """
 
-    def run(self, user_query: UserQuery) -> TargetDossier:
-        final_state = self.graph.invoke({"user_query": user_query})
-        return final_state["dossier"]
+    def __init__(self):
+        self.extractor = ExtractorAgent()
+        self.validator = ValidatorAgent()
+        self.graph = self._build_graph()
+
+    # ==================================================
+    # Graph construction
+    # ==================================================
+    def _build_graph(self) -> StateGraph:
+        g = StateGraph(OrchestratorState)
+
+        g.add_node("extract", self.node_extract)
+        g.add_node("validate", self.node_validate)
+        g.add_node("decide", self.node_decide)
+
+        g.set_entry_point("extract")
+
+        g.add_edge("extract", "validate")
+        g.add_edge("validate", "decide")
+        g.add_edge("decide", END)
+
+        return g
+
+    # ==================================================
+    # Public entry point
+    # ==================================================
+    def run(self, facts: FactSet) -> OrchestratorState:
+        initial_state: OrchestratorState = {
+            "facts": facts,
+            "need_more_retrieval": False,
+        }
+        return self.graph.invoke(initial_state)
+
+    # ==================================================
+    # Nodes
+    # ==================================================
+    def node_extract(self, state: OrchestratorState) -> OrchestratorState:
+        """
+        Extractor node
+        - 현재는 facts가 이미 존재한다고 가정
+        - 구조 유지 목적의 패스스루 노드
+        """
+        if "facts" not in state or state["facts"] is None:
+            raise ValueError("Extractor reached without facts")
+        return state
+
+    def node_validate(self, state: OrchestratorState) -> OrchestratorState:
+        """
+        Validator 실행 전 입력 검증 + Validator 실행
+        """
+        facts = state.get("facts")
+
+        # ---- Input validation (Orchestrator responsibility) ----
+        if not facts or not facts.facts:
+            state["validated_claims"] = ValidatedClaims(claims=[])
+            return state
+
+        for f in facts.facts:
+            if not f.text:
+                raise ValueError("Fact.text missing before validation")
+            if not f.pmid:
+                raise ValueError("Fact.pmid missing before validation")
+
+        # ---- Validator execution ----
+        validated = self.validator.run(facts)
+        state["validated_claims"] = validated
+
+        # ---- Summary for dialogue ----
+        state["validation_summary"] = self._summarize_validation(validated)
+
+        return state
+
+    def node_decide(self, state: OrchestratorState) -> OrchestratorState:
+        """
+        Decide next action based on validation results
+        """
+        validated = state.get("validated_claims")
+
+        need_more = False
+        reasons: List[str] = []
+
+        if validated:
+            for claim in validated.claims:
+                # Consistency-based decision
+                if claim.consistency in {"conflicting", "insufficient"}:
+                    need_more = True
+                    reasons.append("conflicting_or_insufficient_evidence")
+
+                # Risk-based decision (structure: Dict[str, List[str]])
+                if "efficacy_failure" in claim.risk_signals:
+                    need_more = True
+                    reasons.append("efficacy_failure_signal")
+
+        state["need_more_retrieval"] = need_more
+
+        if need_more:
+            state["retrieval_hint"] = (
+                "Additional evidence required due to "
+                + ", ".join(sorted(set(reasons)))
+            )
+
+        return state
+
+    # ==================================================
+    # Helpers
+    # ==================================================
+    def _summarize_validation(self, validated: ValidatedClaims) -> Dict:
+        """
+        Lightweight summary for DialogueAgent
+        """
+        summary = {
+            "n_claims": len(validated.claims),
+            "n_consistent": 0,
+            "n_conflicting": 0,
+            "n_insufficient": 0,
+            "risk_counts": {},
+        }
+
+        for c in validated.claims:
+            if c.consistency == "consistent":
+                summary["n_consistent"] += 1
+            elif c.consistency == "conflicting":
+                summary["n_conflicting"] += 1
+            elif c.consistency == "insufficient":
+                summary["n_insufficient"] += 1
+
+            for risk_type, keywords in c.risk_signals.items():
+                summary["risk_counts"].setdefault(risk_type, 0)
+                summary["risk_counts"][risk_type] += len(keywords)
+
+        return summary
+

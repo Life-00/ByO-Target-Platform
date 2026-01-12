@@ -1,4 +1,5 @@
 from __future__ import annotations
+import re
 import hashlib
 from collections import defaultdict
 from typing import List, Dict, Any
@@ -9,9 +10,23 @@ from app.agents.validator.internal_models import CanonicalClaim, Polarity, Evide
 
 # Configuration
 RISK_KEYWORDS = {
-    "mobility": ["toxicity", "toxic", "adverse", "side effect", "poison"], # Mapped to 'toxicity'
-    "failure": ["fail", "no effect", "ineffective", "resistance"],
-    "inconsistency": ["conflicting", "controversial"]
+    # 독성/안전성 신호
+    "toxicity": [
+        "toxicity", "toxic", "adverse", "side effect", "safety",
+        "hepatotoxic", "nephrotoxic", "cardiotoxic", "neurotoxic",
+        "off-target", "cytotoxic"
+    ],
+
+    # 효능 부족/실패 신호
+    "efficacy_failure": [
+        "failed", "failure", "ineffective", "no effect", "lack of efficacy",
+        "did not improve", "not significant"
+    ],
+
+    # 모순/불일치(선택: Validator의 consistency와 중복될 수 있어 optional)
+    "inconsistency_signal": [
+        "contradict", "inconsistent", "mixed results", "conflicting"
+    ],
 }
 
 def node_ingest(state: ValidatorState) -> ValidatorState:
@@ -52,13 +67,13 @@ def _synthesize_single_cluster(key: tuple, group: List[CanonicalClaim]) -> Valid
     
     # 1. Consistency
     polarities = {c.polarity for c in group}
-    if Polarity.POSITIVE in polarities and Polarity.NEGATIVE in polarities:
+    if polarities == {Polarity.POSITIVE} or polarities == {Polarity.NEGATIVE}:
+        consistency = "consistent"
+    elif Polarity.POSITIVE in polarities and Polarity.NEGATIVE in polarities:
         consistency = "conflicting"
-    elif len(polarities) > 1:
-        consistency = "consistent"
     else:
-        consistency = "consistent"
-        
+        consistency = "insufficient"
+
     # 2. Evidence
     evidence_list = []
     evidence_counts = {"in_vitro": 0, "in_vivo": 0, "clinical": 0}
@@ -77,10 +92,15 @@ def _synthesize_single_cluster(key: tuple, group: List[CanonicalClaim]) -> Valid
         evidence_list.append(ev_item)
 
     # 3. Risks
-    risk_signals = _detect_risks(group)
-    if risk_signals:
-        if any(r.type == "failure" for r in risk_signals) and consistency == "consistent":
-             consistency = "insufficient"
+    aggregated_risks: dict[str, set[str]] = {}
+    for c in group:
+        risk_hits = _detect_risks(c.original_fact.text)
+        for risk_type, keywords in risk_hits.items():
+            aggregated_risks.setdefault(risk_type, set()).update(keywords)
+
+    risk_signals = {
+        k: sorted(v) for k, v in aggregated_risks.items()
+    }
 
     # 4. Construct
     normalized_text = f"{subj} {rel} {obj}".strip()
@@ -95,25 +115,29 @@ def _synthesize_single_cluster(key: tuple, group: List[CanonicalClaim]) -> Valid
         risk_signals=risk_signals
     )
 
-def _detect_risks(group: List[CanonicalClaim]) -> List[RiskSignal]:
-    signals = []
-    seen = set()
-    
-    for c in group:
-        text = c.original_fact.text.lower()
-        for r_type, keywords in RISK_KEYWORDS.items():
-            if any(k in text for k in keywords):
-                mapped_type = r_type
-                if r_type == "mobility": mapped_type = "toxicity"
-                
-                unique_key = (mapped_type, c.original_fact.pmid)
-                if unique_key in seen:
-                    continue
-                seen.add(unique_key)
-                
-                signals.append(RiskSignal(
-                    type=mapped_type,
-                    pmid=c.original_fact.pmid,
-                    sentence_id=c.original_fact.sentence_id
-                ))
-    return signals
+def _detect_risks(text: str) -> dict[str, list[str]]:
+    """
+    Detect risk-related keywords in text.
+    Returns:
+      {
+        "toxicity": ["toxicity", "hepatotoxic"],
+        "efficacy_failure": ["no effect"]
+      }
+    """
+    if not text:
+        return {}
+
+    text = text.lower()
+    detected: dict[str, list[str]] = {}
+
+    for risk_type, keywords in RISK_KEYWORDS.items():
+        hits = []
+        for kw in keywords:
+            if kw in text:
+                hits.append(kw)
+
+        if hits:
+            detected[risk_type] = sorted(set(hits))
+
+    return detected
+

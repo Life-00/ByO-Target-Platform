@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import TypedDict, List, Dict, Any, Optional
 from app.schemas.fact import FactSet
 from app.schemas.claim import ValidatedClaims
+from app.agents.validator.internal_models import CanonicalClaim
 
 # Internal models can be defined here or imported if they are in a shared location.
 # For now, since they were inner classes or local to the agent, we might need to define them here 
@@ -25,8 +26,8 @@ class ValidatorState(TypedDict, total=False):
     fact_set: FactSet
     
     # Internal
-    canonical_claims: List[Any] # List[CanonicalClaim]
-    clusters: Dict[tuple, List[Any]] # Dict[Key, List[CanonicalClaim]]
+    canonical_claims: List[CanonicalClaim] # List[CanonicalClaim]
+    clusters: Dict[tuple, List[CanonicalClaim]] # Dict[Key, List[CanonicalClaim]]
     
     # Output
     validated_claims: ValidatedClaims

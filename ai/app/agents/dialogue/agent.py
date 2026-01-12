@@ -3,150 +3,285 @@ from __future__ import annotations
 
 import re
 import uuid
-from typing import TypedDict, Optional, Dict, Any
+from typing import Dict, Any
 
 from langgraph.graph import StateGraph, END
 
 from app.schemas.message import UserMessage, SystemResponse
 from app.schemas.user_query import UserQuery, SearchConstraints
 from app.agents.orchestrator.agent import OrchestratorAgent
+from app.agents.dialogue.state import DialogueState
 
 
-class DialogueState(TypedDict, total=False):
-    user_message: UserMessage
-    user_query: Optional[UserQuery]
-    response: Optional[SystemResponse]
-    error: Optional[str]
-
-
-def _parse_user_query_rule(message: str) -> Dict[str, Any]:
+class DialogueAgent:
     """
-    MVP rule-based parsing.
-    - target: 대문자 약어(예: TNF, EGFR) 또는 'Target:' 패턴
-    - disease: 'disease:' 패턴
+    DialogueAgent
+    - 사용자 메시지 파싱
+    - 누락 정보 질문(clarifying question)
+    - Orchestrator 실행 트리거
+    - Orchestrator 결과를 사용자 메시지로 변환
+      (validation_summary / need_more_retrieval / retrieval_hint)
     """
-    target = None
-    disease = None
 
-    m = re.search(r"(?:target\s*:\s*)([A-Za-z0-9\-_/]+)", message, flags=re.I)
-    if m:
-        target = m.group(1).strip()
+    def __init__(self):
+        self.orchestrator = OrchestratorAgent()
+        self.graph = self._build_graph()
 
-    m = re.search(r"(?:disease\s*:\s*)(.+)$", message, flags=re.I)
-    if m:
-        disease = m.group(1).strip()
+    # -----------------------
+    # Graph
+    # -----------------------
+    def _build_graph(self) -> StateGraph:
+        g = StateGraph(DialogueState)
 
-    # 아주 단순한 백업: 대문자 약어 후보 하나를 target로
-    if not target:
-        caps = re.findall(r"\b[A-Z0-9\-]{3,}\b", message)
-        if caps:
-            target = caps[0]
+        g.add_node("parse", self.node_parse)
+        g.add_node("route", self.node_route)
+        g.add_node("run_pipeline", self.node_run_pipeline)
+        g.add_node("handle_decision", self.node_handle_decision)
 
-    return {"target": target, "disease": disease}
+        g.set_entry_point("parse")
+        g.add_edge("parse", "route")
 
-
-def node_parse(state: DialogueState) -> DialogueState:
-    msg = state["user_message"].message
-    parsed = _parse_user_query_rule(msg)
-
-    # research_question은 원문 그대로 두되, 타깃/질환이 없으면 아직 미완성
-    uq = UserQuery(
-        query_id=str(uuid.uuid4()),
-        target=parsed["target"] or "UNKNOWN",
-        disease=parsed["disease"],
-        organ=None,
-        research_question=msg,
-        constraints=SearchConstraints(max_results=50),
-    )
-    state["user_query"] = uq
-    return state
-
-
-def node_route(state: DialogueState) -> DialogueState:
-    uq = state.get("user_query")
-    if uq is None:
-        state["response"] = SystemResponse(
-            type="warning",
-            message="요청을 해석할 수 없습니다.",
-            payload=None,
+        g.add_conditional_edges(
+            "route",
+            self.route_after_parse,
+            {
+                "ask_clarify": END,
+                "run_pipeline": "run_pipeline",
+                "handle_decision": "handle_decision",
+            },
         )
+
+        g.add_edge("run_pipeline", END)
+        return g
+
+    # -----------------------
+    # Public entry
+    # -----------------------
+    def run(self, user_message: UserMessage) -> SystemResponse:
+        state: DialogueState = {"user_message": user_message}
+        final_state = self.graph.invoke(state)
+        return final_state["response"]
+
+    # -----------------------
+    # Nodes
+    # -----------------------
+    def node_parse(self, state: DialogueState) -> DialogueState:
+        um = state["user_message"]
+        text = getattr(um, "text", None) or getattr(um, "message", None) or ""
+
+        # Yes/No 응답 감지
+        decision = self._parse_yes_no(text)
+        if decision:
+            state["user_decision"] = decision
+            return state
+
+        parsed = self._parse_user_text(text)
+        if not parsed:
+            state["response"] = SystemResponse(
+                type="warning",
+                message="요청을 해석할 수 없습니다. 타깃(유전자/단백질)과 질환, 질문을 함께 알려주세요.",
+                payload=None,
+            )
+            return state
+
+        # UserQuery 구성
+        uq = UserQuery(
+            query_id=str(uuid.uuid4()),
+            target=parsed.get("target"),
+            disease=parsed.get("disease"),
+            question=parsed.get("question"),
+            constraints=SearchConstraints(
+                retmax=parsed.get("retmax", 5),
+                date_from=parsed.get("date_from"),
+                date_to=parsed.get("date_to"),
+            ),
+        )
+        state["user_query"] = uq
         return state
 
-    # 최소 기준: target이 UNKNOWN이면 명확화 질문
-    if uq.target == "UNKNOWN" or uq.target.strip() == "":
-        state["response"] = SystemResponse(
-            type="question",
-            message="분석할 타깃(예: EGFR, TNF 등)을 지정해 주세요. 예) target: EGFR",
-            payload=None,
-        )
-        return state
+    def node_route(self, state: DialogueState) -> DialogueState:
+        if state.get("user_decision"):
+            return state
 
-    # disease는 optional로 두되, 너무 모호하면 한 번 더 질문할 수도 있음(선택)
-    if uq.disease is None or uq.disease.strip() == "":
+        uq = state.get("user_query")
+        if not uq:
+            state["response"] = SystemResponse(
+                type="warning",
+                message="요청을 해석할 수 없습니다. 타깃과 질환을 포함해 다시 입력해 주세요.",
+                payload=None,
+            )
+            return state
+
+        # 누락 정보 확인: target/disease/question 중 하나라도 없으면 질문
+        missing = []
+        if not getattr(uq, "target", None):
+            missing.append("타깃(유전자/단백질)")
+        if not getattr(uq, "disease", None):
+            missing.append("질환")
+        if not getattr(uq, "question", None):
+            missing.append("검증 질문")
+
+        if missing:
+            state["response"] = SystemResponse(
+                type="question",
+                message=f"다음 정보가 필요합니다: {', '.join(missing)}. 예: 'EGFR의 폐암에서 효능 근거를 검증해줘'",
+                payload={"missing": missing},
+            )
+            return state
+
+        # 충분하면 pipeline 실행
         state["response"] = SystemResponse(
-            type="question",
-            message="질환 범위를 지정해 주실래요? 예) disease: Alzheimer's disease (선택이지만 권장)",
+            type="info",
+            message="요청을 확인했습니다. 연구 근거를 수집하고 핵심 주장 단위로 정리하겠습니다.",
             payload={"query_id": uq.query_id},
         )
         return state
 
-    # 실행 단계로 넘김 (response는 아직 비워둠)
-    state["response"] = None
-    return state
+    def node_run_pipeline(self, state: DialogueState) -> DialogueState:
+        uq = state["user_query"]
+        result = self.orchestrator.run(uq)
+        state["orchestrator_result"] = result
 
+        if result.get("need_more_retrieval"):
+            state["awaiting_user_decision"] = True
+            state["response"] = SystemResponse(
+                type="question",
+                message=self._render_need_more_message(
+                    result.get("validation_summary"),
+                    result.get("retrieval_hint"),
+                ),
+                payload=None,
+            )
+            return state
 
-def node_run_pipeline(state: DialogueState) -> DialogueState:
-    # route에서 question이 생성됐다면 실행하지 않음
-    if state.get("response") is not None:
+        state["response"] = SystemResponse(
+            type="result",
+            message=self._render_result_message(
+                result.get("validation_summary")
+            ),
+            payload=None,
+        )
         return state
 
-    orchestrator = OrchestratorAgent()
+    def node_handle_decision(self, state: DialogueState) -> DialogueState:
+        decision = state.get("user_decision")
 
-    uq = state["user_query"]
-    dossier = orchestrator.run(uq)
+        if decision == "yes":
+            state["response"] = SystemResponse(
+                type="info",
+                message=(
+                    "추가 연구를 검색하겠습니다. "
+                    "다음 단계에서 최신 논문을 포함해 근거를 보강합니다."
+                ),
+                payload={"action": "re_retrieve"},
+            )
+            return state
 
-    state["response"] = SystemResponse(
-        type="result",
-        message="타깃 검증 리포트가 생성되었습니다.",
-        payload={
-            "query_id": uq.query_id,
-            "dossier_id": dossier.dossier_id,
-        },
-    )
-    return state
+        # decision == "no"
+        summary = state["orchestrator_result"].get("validation_summary")
+        state["response"] = SystemResponse(
+            type="result",
+            message=self._render_result_message(summary),
+            payload={"finalized": True},
+        )
+        return state
+
+    # -----------------------
+    # Router
+    # -----------------------
+    def route_after_parse(self, state: DialogueState) -> str:
+        if state.get("user_decision"):
+            return "handle_decision"
+        resp = state.get("response")
+        if resp and resp.type == "question":
+            return "ask_clarify"
+        return "run_pipeline"
+
+    # -----------------------
+    # Helpers: 사용자 질의 parsing
+    # -----------------------
+    def _parse_yes_no(self, text: str) -> str | None:
+        text = text.strip().lower()
+        if text in {"예", "네", "yes", "y"}:
+            return "yes"
+        if text in {"아니오", "아니요", "no", "n"}:
+            return "no"
+        return None
 
 
-def build_dialogue_graph():
-    g = StateGraph(DialogueState)
+    def _parse_user_text(self, text: str) -> Dict[str, Any]:
+        """
+        매우 단순 파서(MVP):
+        - target: 대문자 유전자/단백질 토큰(예: EGFR, TP53)
+        - disease: '에서', '관련', '질환' 주변 단어(heuristic)
+        - question: 전체 문장
+        """
 
-    g.add_node("parse", node_parse)
-    g.add_node("route", node_route)
-    g.add_node("run_pipeline", node_run_pipeline)
+        # target 후보: 대문자+숫자/하이픈 (EGFR, BRCA1, PD-1 등)
+        target_match = re.search(r"\b[A-Z0-9\-]{3,}\b", text)
+        target = target_match.group(0) if target_match else None
 
-    g.set_entry_point("parse")
-    g.add_edge("parse", "route")
+        # disease 후보(휴리스틱): "~암", "~질환", "~증" 등
+        disease_match = re.search(r"([가-힣A-Za-z0-9\-]+(?:암|질환|증|병))", text)
+        disease = disease_match.group(1) if disease_match else None
 
-    # route 단계에서 response가 있으면 END, 없으면 실행
-    def _route_condition(state: DialogueState) -> str:
-        return "end" if state.get("response") is not None else "run"
+        # question은 전체 문장
+        question = text.strip()
 
-    g.add_conditional_edges(
-        "route",
-        _route_condition,
-        {
-            "end": END,
-            "run": "run_pipeline",
-        },
-    )
+        return {
+            "target": target,
+            "disease": disease,
+            "question": question,
+            "retmax": 5,
+            "date_from": None,
+            "date_to": None,
+        }
 
-    g.add_edge("run_pipeline", END)
-    return g.compile()
+    # -----------------------
+    # Helpers: message rendering
+    # -----------------------
+    def _render_result_message(self, summary: Dict[str, Any] | None) -> str:
+        """
+        validation_summary → 사용자 결과 메시지
+        """
+        if not summary:
+            return "검증 결과를 정리했습니다. (요약 정보가 비어 있습니다.)"
 
+        n = summary.get("n_claims", 0)
+        c = summary.get("n_consistent", 0)
+        cf = summary.get("n_conflicting", 0)
+        ins = summary.get("n_insufficient", 0)
+        risk_counts = summary.get("risk_counts", {}) or {}
 
-class DialogueAgent:
-    def __init__(self):
-        self.graph = build_dialogue_graph()
+        risk_part = ""
+        if risk_counts:
+            # risk type별 카운트 나열
+            items = [f"{k} {v}건" for k, v in risk_counts.items()]
+            risk_part = f"\n- 위험 신호(키워드) 탐지: {', '.join(items)}"
 
-    def handle(self, user_message: UserMessage) -> SystemResponse:
-        final_state = self.graph.invoke({"user_message": user_message})
-        return final_state["response"]
+        return (
+            f"핵심 주장 {n}개를 기준으로 근거를 정리했습니다.\n"
+            f"- 일관됨: {c}개\n"
+            f"- 상충됨: {cf}개\n"
+            f"- 근거 부족: {ins}개"
+            f"{risk_part}\n\n"
+            "원하시면 주장별 근거(PMID)와 실험 수준(in vitro/in vivo/clinical)까지 상세히 보여드릴게요."
+        )
+
+    def _render_need_more_message(self, summary: Dict[str, Any] | None, hint: str | None) -> str:
+        """
+        need_more_retrieval=True일 때 사용자 질문 메시지
+        """
+        base = "현재 확보된 근거만으로는 결론을 내리기 어렵습니다."
+
+        if summary:
+            cf = summary.get("n_conflicting", 0)
+            ins = summary.get("n_insufficient", 0)
+            base += f"\n- 상충됨: {cf}개, 근거 부족: {ins}개"
+
+        if hint:
+            # 기계적 hint를 사람말로 약간 부드럽게
+            base += f"\n- 추가 확인이 필요한 이유: {self._humanize_hint(hint)}"
+
+        base += "\n\n추가 논문을 더 검색해서 근거를 보강할까요? (예/아니오)"
+        return base
