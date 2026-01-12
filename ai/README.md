@@ -2,6 +2,12 @@
 ```text
 ai/
 ├─ app/
+│  ├─ core/                           # 공통 변수 설계
+│  │   ├─ llm.py                      # LLM, tokenizer
+│  │   ├─ embeddings.py               # embedding 모델
+│  │   ├─ chromadb.py                 # ChromaDB (벡터 DB)
+│  │   └─ langsmith.py                # LangSmith
+│  │  
 │  ├─ agents/
 │  │  ├─ dialogue/                    # LangGraph 기반 중앙 에이전트
 │  │  │  ├─ agent.py                  # DialogueAgent (parse → route → run)
