@@ -56,6 +56,9 @@ jobs:
             export CHROMA_HOST="chroma"
             export CHROMA_PORT="8000"
 
+            # CORS
+            export CORS_ORIGINS="${{ secrets.CORS_ORIGINS }}"
+
             echo "[DEPLOY] Building and starting containers..."
             docker compose up -d --build --remove-orphans
 
