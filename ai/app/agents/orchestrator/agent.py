@@ -7,7 +7,7 @@ from app.schemas.fact import FactSet
 from app.schemas.claim import ValidatedClaims
 from app.schemas.paper import PaperCorpus
 from app.schemas.user_query import UserQuery
-from ai.app.schemas.dossier import TargetDossier
+from app.schemas.dossier import TargetDossier
 
 from app.agents.retriever.agent import RetrieverAgent
 from app.agents.extractor.agent import ExtractorAgent
