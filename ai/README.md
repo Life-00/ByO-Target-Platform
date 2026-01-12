@@ -45,6 +45,16 @@ ai/
 │  │
 │  ├─ config/
 │  │  └─ env.py                       # api key 설정
+│  │
+│  ├─ tests/
+│  │  └─ agents/                      # 각 agent 별로 테스트 진행
+│  │      ├─ test_retriever_agent.py 
+│  │      ├─ test_dialogue_flow.py
+│  │      ├─ test_orchestrator_pipeline.py
+│  │      ├─ test_extractor_agent.py
+│  │      ├─ test_validator_agent.py
+│  │      └─ test_synthesizer_agent.py
+│  │ 
 │  │                    
 │  └─ main.py                         # 애플리케이션 main (run 함수)
 │
