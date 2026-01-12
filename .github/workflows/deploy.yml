@@ -18,7 +18,7 @@ jobs:
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            TARGET_DIR="/home/ubuntu/workspace/TVA"
+            TARGET_DIR="workspace/TVA_test"
             cd $TARGET_DIR
 
             # 1. 코드 업데이트 (파일이 아닌 소스만 동기화)
