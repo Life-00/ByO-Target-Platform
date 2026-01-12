@@ -47,6 +47,7 @@ ai/
 │  │  └─ env.py                       # api key 설정
 │  │
 │  ├─ tests/
+│  │  ├─ conftest..py
 │  │  └─ agents/                      # 각 agent 별로 테스트 진행
 │  │      ├─ test_retriever_agent.py 
 │  │      ├─ test_dialogue_flow.py
