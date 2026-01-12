@@ -1,6 +1,4 @@
-# 현재 진행된 agent 부분까지만 적용
 # LangGraph 사용
-
 from typing import TypedDict, Optional, Dict, List
 
 from langgraph.graph import StateGraph, END
@@ -9,11 +7,12 @@ from app.schemas.fact import FactSet
 from app.schemas.claim import ValidatedClaims
 from app.schemas.paper import PaperCorpus
 from app.schemas.user_query import UserQuery
+from ai.app.schemas.dossier import TargetDossier
 
 from app.agents.retriever.agent import RetrieverAgent
 from app.agents.extractor.agent import ExtractorAgent
 from app.agents.validator.agent import ValidatorAgent
-
+from app.agents.synthesizer.agent import SynthesizerAgent
 
 # ======================================================
 # Orchestrator State
@@ -39,6 +38,9 @@ class OrchestratorState(TypedDict, total=False):
     # For dialogue / summary
     validation_summary: Dict
 
+    # target dossier
+    target_dossier: Optional[TargetDossier]
+
 
 # ======================================================
 # Orchestrator Agent
@@ -58,34 +60,8 @@ class OrchestratorAgent:
         self.extractor = ExtractorAgent()
         self.validator = ValidatorAgent()
         self.graph = self._build_graph()
+        self.synthesizer = SynthesizerAgent()
 
-    # ==================================================
-    # Graph construction
-    # ==================================================
-    def _build_graph(self) -> StateGraph:
-        g = StateGraph(OrchestratorState)
-
-        g.add_node("retrieve", self.node_retrieve)
-        g.add_node("extract", self.node_extract)
-        g.add_node("validate", self.node_validate)
-        g.add_node("decide", self.node_decide)
-
-        g.set_entry_point("retrieve")
-
-        g.add_edge("retrieve", "extract")
-        g.add_edge("extract", "validate")
-        g.add_edge("validate", "decide")
-
-        g.add_conditional_edges(
-            "decide",
-            self._route_after_decide,
-            {
-                "retrieve": "retrieve",
-                "end": END,
-            }
-        )
-
-        return g
 
     # ==================================================
     # Public entry point
@@ -120,10 +96,6 @@ class OrchestratorAgent:
         paper_corpus = self.retriever.run(user_query)
         state["paper_corpus"] = paper_corpus
 
-        # Extractor 입력용 facts 생성
-        facts = self.extractor.run(paper_corpus)
-        state["facts"] = facts
-
         return state
 
     def node_extract(self, state: OrchestratorState) -> OrchestratorState:
@@ -132,8 +104,13 @@ class OrchestratorAgent:
         - 현재는 facts가 이미 존재한다고 가정
         - 구조 유지 목적의 패스스루 노드
         """
-        if "facts" not in state or state["facts"] is None:
-            raise ValueError("Extractor reached without facts")
+        paper_corpus = state.get("paper_corpus")
+        if not paper_corpus:
+            raise ValueError("Extractor reached without paper_corpus")
+
+        facts = self.extractor.run(paper_corpus)
+        state["facts"] = facts
+
         return state
 
     def node_validate(self, state: OrchestratorState) -> OrchestratorState:
@@ -185,14 +162,62 @@ class OrchestratorAgent:
 
         state["need_more_retrieval"] = need_more
 
+        HINT_MAP = {
+            "conflicting_or_insufficient_evidence": "일부 주장이 서로 상충하거나 근거가 부족합니다",
+            "efficacy_failure_signal": "일부 연구에서 효능 실패 신호가 보고되었습니다",
+        }
+
         if need_more:
-            state["retrieval_hint"] = (
-                "Additional evidence required due to "
-                + ", ".join(sorted(set(reasons)))
-            )
+            human_reasons = [HINT_MAP[r] for r in set(reasons) if r in HINT_MAP]
+            state["retrieval_hint"] = " / ".join(human_reasons)
 
         return state
 
+    def node_synthesize(self, state: OrchestratorState) -> OrchestratorState:
+        validated = state.get("validated_claims")
+        uq = state.get("user_query")
+
+        if not validated or not uq:
+            return state
+
+        dossier = self.synthesizer.run(
+            validated,
+            target=uq.target,
+        )
+        state["target_dossier"] = dossier
+        return state
+
+    # ==================================================
+    # Graph construction
+    # ==================================================
+    def _build_graph(self) -> StateGraph:
+        g = StateGraph(OrchestratorState)
+
+        g.add_node("retrieve", self.node_retrieve)
+        g.add_node("extract", self.node_extract)
+        g.add_node("validate", self.node_validate)
+        g.add_node("decide", self.node_decide)
+
+        g.set_entry_point("retrieve")
+
+        g.add_edge("retrieve", "extract")
+        g.add_edge("extract", "validate")
+        g.add_edge("validate", "decide")
+
+        g.add_conditional_edges(
+            "decide",
+            self._route_after_decide,
+            {
+                "retrieve": "retrieve",
+                "end": END,
+            }
+        )
+
+        g.add_node("synthesize", self.node_synthesize)
+        g.add_edge("decide", "synthesize")
+        g.add_edge("synthesize", END)
+
+        return g
 
     # ==================================================
     # Helpers
@@ -226,12 +251,12 @@ class OrchestratorAgent:
     # ==================================================
     # 재검색
     # ==================================================
-    MAX_RETRIEVAL_ROUNDS = 2  # 안전장치
-
     def _route_after_decide(self, state: OrchestratorState) -> str:
         """
         Decide next step after validation.
         """
+        MAX_RETRIEVAL_ROUNDS = 2  # 안전장치
+
         if state.get("need_more_retrieval"):
             round_ = state.get("retrieval_round", 0)
 

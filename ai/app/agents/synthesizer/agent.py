@@ -21,7 +21,10 @@ class SynthesizerAgent:
 
     # Core mapping
     def to_target_dossier(
-        self, validated: ValidatedClaims, *, target: str, dossier_id: str | None = None, format: str = "markdown",
+        self,
+        validated: ValidatedClaims,
+        *, target: str, dossier_id: str | None = None,
+        format: str = "markdown",
     ) -> TargetDossier:
 
         if not validated or not isinstance(validated, ValidatedClaims):
@@ -32,11 +35,14 @@ class SynthesizerAgent:
             "risk_signals": [],
         }
 
-        key_pmids: List[str] = []
-        risk_pmids: List[str] = []
-
         # Key claims
         for claim in validated.claims:
+            claim_pmids: List[str] = []
+
+            for e in claim.evidence:
+                if e.pmid:
+                    claim_pmids.append(e.pmid)
+
             text_block = {
                 "normalized_claim": claim.normalized_claim,
                 "consistency": claim.consistency,
@@ -51,33 +57,30 @@ class SynthesizerAgent:
                 ],
             }
 
-            for e in claim.evidence:
-                if e.pmid:
-                    key_pmids.append(e.pmid)
-
             sections["key_claims"].append(
                 DossierSection(
                     text=str(text_block),
-                    citations=sorted(set(key_pmids)),
+                    citations=sorted(set(claim_pmids)),
                 )
             )
 
             # Risk signals
-            for r in claim.risk_signals:
-                sections["risk_signals"].append(
-                    DossierSection(
-                        text=str(
-                            {
-                                "type": r.type,
-                                "pmid": r.pmid,
-                                "sentence_id": r.sentence_id,
-                            }
-                        ),
-                        citations=[r.pmid] if r.pmid else [],
-                    )
-                )
-                if r.pmid:
-                    risk_pmids.append(r.pmid)
+            risk_signals = claim.risk_signals or {}
+            if isinstance(risk_signals, dict):
+                for signal_type, signals in risk_signals.items():
+                    for r in signals:
+                        sections["risk_signals"].append(
+                            DossierSection(
+                                text=str(
+                                    {
+                                        "type": signal_type,
+                                        "pmid": r.pmid,
+                                        "sentence_id": r.sentence_id,
+                                    }
+                                ),
+                                citations=[r.pmid] if r.pmid else [],
+                            )
+                        )
 
         return TargetDossier(
             dossier_id=dossier_id or self._new_dossier_id(),
@@ -86,7 +89,7 @@ class SynthesizerAgent:
             format=format,
         )
 
-    # Optional: developer convenience
+    # markdown으로 출력
     def to_markdown(self, dossier: TargetDossier) -> str:
         md: List[str] = []
         md.append(f"# Target Dossier: {dossier.target}")
@@ -103,6 +106,5 @@ class SynthesizerAgent:
 
         return "\n".join(md).strip() + "\n"
 
-    def run(self,validated: ValidatedClaims, *, target: str,
-    ) -> TargetDossier:
+    def run(self,validated: ValidatedClaims, *, target: str,) -> TargetDossier:
         return self.to_target_dossier(validated, target=target)

@@ -17,10 +17,10 @@ class DialogueAgent:
     """
     DialogueAgent
     - 사용자 메시지 파싱
-    - 누락 정보 질문(clarifying question)
-    - Orchestrator 실행 트리거
+    - 누락 정보 질문
+    - Orchestrator 실행
     - Orchestrator 결과를 사용자 메시지로 변환
-      (validation_summary / need_more_retrieval / retrieval_hint)
+    - 재검색 여부를 사용자에게 질문
     """
 
     def __init__(self):
@@ -52,6 +52,7 @@ class DialogueAgent:
         )
 
         g.add_edge("run_pipeline", END)
+        g.add_edge("handle_decision", END)
         return g
 
     # -----------------------
@@ -100,6 +101,7 @@ class DialogueAgent:
         return state
 
     def node_route(self, state: DialogueState) -> DialogueState:
+        # 재검색 결정 응답이면 handle_decision으로
         if state.get("user_decision"):
             return state
 
@@ -139,6 +141,7 @@ class DialogueAgent:
 
     def node_run_pipeline(self, state: DialogueState) -> DialogueState:
         uq = state["user_query"]
+
         result = self.orchestrator.run(uq)
         state["orchestrator_result"] = result
 
@@ -154,6 +157,7 @@ class DialogueAgent:
             )
             return state
 
+        # 충분한 경우 → 바로 결과 제공
         state["response"] = SystemResponse(
             type="result",
             message=self._render_result_message(
@@ -165,20 +169,26 @@ class DialogueAgent:
 
     def node_handle_decision(self, state: DialogueState) -> DialogueState:
         decision = state.get("user_decision")
+        orch = state.get("orchestrator_result")
 
+        # 사용자가 재검색 YES
         if decision == "yes":
+            # 🔁 Orchestrator 재실행 (facts 없이 → retriever부터)
+            uq = orch.get("user_query") if orch else state.get("user_query")
+            result = self.orchestrator.run(user_query=uq)
+            state["orchestrator_result"] = result
+
             state["response"] = SystemResponse(
-                type="info",
-                message=(
-                    "추가 연구를 검색하겠습니다. "
-                    "다음 단계에서 최신 논문을 포함해 근거를 보강합니다."
+                type="result",
+                message=self._render_result_message(
+                    result.get("validation_summary")
                 ),
-                payload={"action": "re_retrieve"},
+                payload={"re_retrieved": True},
             )
             return state
 
-        # decision == "no"
-        summary = state["orchestrator_result"].get("validation_summary")
+        # 사용자가 재검색 NO
+        summary = orch.get("validation_summary") if orch else None
         state["response"] = SystemResponse(
             type="result",
             message=self._render_result_message(summary),
@@ -281,7 +291,7 @@ class DialogueAgent:
 
         if hint:
             # 기계적 hint를 사람말로 약간 부드럽게
-            base += f"\n- 추가 확인이 필요한 이유: {self._humanize_hint(hint)}"
+            base += f"\n- 추가 확인이 필요한 이유: {hint}"
 
         base += "\n\n추가 논문을 더 검색해서 근거를 보강할까요? (예/아니오)"
         return base
