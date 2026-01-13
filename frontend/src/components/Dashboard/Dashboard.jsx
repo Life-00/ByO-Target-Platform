@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
-import ReactMarkdown from "react-markdown"; // 추가
-import remarkGfm from "remark-gfm"; // 추가
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   Microscope,
   MessageSquare,
@@ -13,30 +13,50 @@ import {
   Loader2,
   Trash2,
   UploadCloud,
-  Menu, // 햄버거 메뉴 아이콘
-  ChevronLeft, // 닫기 화살표 아이콘
+  Menu,
+  ChevronLeft,
+  // [NEW] 추가된 아이콘
+  Database, // Extractor
+  Search, // Retrieval
+  PenTool, // Synthesizer
+  BookOpen, // Right Panel Toggle
+  CheckSquare, // Checkbox Icon
+  Layers, // General Chat
 } from "lucide-react";
 import api from "../../api";
 import "./Dashboard.css";
 
+// [NEW] 에이전트 설정 상수
+const AGENTS = [
+  { id: "general", name: "General Chat", icon: Layers, color: "#64748b" },
+  { id: "retrieval", name: "Paper Search", icon: Search, color: "#0ea5e9" },
+  { id: "extractor", name: "Extractor", icon: Database, color: "#a855f7" },
+  { id: "synthesizer", name: "Report Writer", icon: PenTool, color: "#f59e0b" },
+];
+
 const Dashboard = ({ onLogout }) => {
   // --- 상태 관리 ---
   const [sessions, setSessions] = useState([]);
-  const [currentSessionId, setCurrentSessionId] = useState(null); // null = 새 채팅 준비 상태
+  const [currentSessionId, setCurrentSessionId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [pendingFiles, setPendingFiles] = useState([]);
   const [isWaiting, setIsWaiting] = useState(false);
   const [dragActive, setDragActive] = useState(false);
 
-  // 반응형 사이드바 상태 (기본값: 데스크탑은 열림, 모바일은 닫힘)
-  const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth > 768);
+  // [NEW] 에이전트 및 참조 자료 상태
+  const [activeAgent, setActiveAgent] = useState("general");
+  const [references, setReferences] = useState([]); // { id, title, type: 'file'|'paper', checked: boolean }
+  const [isRefPanelOpen, setIsRefPanelOpen] = useState(true); // 우측 패널 열림 상태
+
+  // 반응형 사이드바 상태
+  const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth > 1024);
 
   const scrollRef = useRef(null);
   const textareaRef = useRef(null);
   const isInitializing = useRef(false);
 
-  // --- 초기화 로직 (접속 시) ---
+  // --- 초기화 로직 ---
   useEffect(() => {
     const init = async () => {
       if (isInitializing.current) return;
@@ -44,27 +64,26 @@ const Dashboard = ({ onLogout }) => {
       try {
         const res = await api.get("/chat/sessions");
         setSessions(res.data);
-        // 중요: 최근 세션을 자동으로 선택하지 않음 -> 빈 화면 유지
-        // 사용자가 명시적으로 클릭하거나 입력을 시작해야 세션 활성화
       } catch (err) {
         console.error("세션 목록 로드 실패", err);
       }
     };
     init();
 
-    // 화면 크기 변경 감지하여 사이드바 상태 자동 조절
     const handleResize = () => {
-      if (window.innerWidth <= 768) {
+      if (window.innerWidth <= 1024) {
         setIsSidebarOpen(false);
+        setIsRefPanelOpen(false); // 작은 화면에서는 우측 패널도 닫음
       } else {
         setIsSidebarOpen(true);
+        setIsRefPanelOpen(true);
       }
     };
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // 메시지가 추가되거나 입력창 높이가 변할 때 스크롤 조정
+  // 스크롤 조정
   useEffect(() => {
     if (scrollRef.current)
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -76,43 +95,60 @@ const Dashboard = ({ onLogout }) => {
   const handleSelectSession = async (id) => {
     setCurrentSessionId(id);
     try {
-      const res = await api.get(`/chat/sessions/${id}/messages`);
-      setMessages(res.data);
-      // 모바일에서는 선택 시 사이드바 닫기
+      // 1. 메시지 로드
+      const msgRes = await api.get(`/chat/sessions/${id}/messages`);
+      setMessages(msgRes.data);
+
+      // 2. [NEW] 해당 세션의 참조 자료(검색된 논문 등) 로드 (Backend API 구현 필요)
+      // const docRes = await api.get(`/chat/sessions/${id}/documents`);
+      // setReferences(docRes.data);
+
+      // 임시: 세션을 바꾸면 참조 자료는 비운다고 가정 (혹은 서버에서 받아옴)
+      setReferences([]);
+
       if (window.innerWidth <= 768) setIsSidebarOpen(false);
     } catch (err) {
       console.error(err);
     }
   };
 
-  // 'New Chatting' 버튼 클릭 -> 상태 초기화 (실제 생성은 메시지 보낼 때)
+  // New Chatting 클릭 -> [NEW] 모든 상태 초기화
   const handleResetChat = () => {
     setCurrentSessionId(null);
     setMessages([]);
     setPendingFiles([]);
     setInput("");
+
+    // [NEW] 에이전트 및 참조 자료 초기화
+    setActiveAgent("general");
+    setReferences([]);
+
     if (window.innerWidth <= 768) setIsSidebarOpen(false);
+    if (textareaRef.current) textareaRef.current.focus();
   };
 
-  // 세션 삭제
   const handleDeleteSession = async (e, id) => {
     e.stopPropagation();
     if (!window.confirm("이 대화를 삭제하시겠습니까?")) return;
     try {
       await api.delete(`/chat/sessions/${id}`);
-      const updated = sessions.filter((s) => s.id !== id);
-      setSessions(updated);
-
-      // 현재 보고 있는 세션을 삭제했다면 초기화
-      if (currentSessionId === id) {
-        handleResetChat();
-      }
+      setSessions((prev) => prev.filter((s) => s.id !== id));
+      if (currentSessionId === id) handleResetChat();
     } catch (err) {
       alert("삭제 실패");
     }
   };
 
-  // 파일 선택
+  // [NEW] 참조 자료 체크박스 토글
+  const toggleReference = (id) => {
+    setReferences((prev) =>
+      prev.map((ref) =>
+        ref.id === id ? { ...ref, checked: !ref.checked } : ref
+      )
+    );
+  };
+
+  // 파일 핸들링
   const handleFileSelection = (files) => {
     setPendingFiles((prev) => [...prev, ...Array.from(files)]);
   };
@@ -121,7 +157,6 @@ const Dashboard = ({ onLogout }) => {
     setPendingFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
-  // 드래그 앤 드롭
   const handleDrag = (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -138,7 +173,6 @@ const Dashboard = ({ onLogout }) => {
     }
   };
 
-  // 입력창 높이 자동 조절 함수
   const handleInputResize = (e) => {
     setInput(e.target.value);
     if (textareaRef.current) {
@@ -147,60 +181,84 @@ const Dashboard = ({ onLogout }) => {
     }
   };
 
-  // 전송 후 높이 초기화
-  const resetInputHeight = () => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-    }
-  };
-
+  // 메시지 전송
   const handleSendMessage = async () => {
     if ((!input.trim() && pendingFiles.length === 0) || isWaiting) return;
 
     const userContent = input.trim();
 
-    // 1. 화면에 사용자 메시지 즉시 표시
+    // 1. 화면 업데이트
     setMessages((prev) => [
       ...prev,
       { role: "user", content: userContent || "파일 분석 요청" },
     ]);
     setInput("");
-    resetInputHeight();
+    if (textareaRef.current) textareaRef.current.style.height = "auto";
     setIsWaiting(true);
 
     try {
       let targetId = currentSessionId;
 
-      // 2. 세션 ID가 없으면(=새 채팅) 서버에 세션 생성 요청
+      // 2. 세션 없으면 생성
       if (!targetId) {
         const createRes = await api.post("/chat/sessions");
         targetId = createRes.data.id;
 
-        // 제목 생성 (내용 앞부분 따오기)
         const newTitle = userContent
           ? userContent.substring(0, 15) +
             (userContent.length > 15 ? "..." : "")
           : "새로운 대화";
 
-        // 제목 업데이트
         await api.patch(`/chat/sessions/${targetId}`, { title: newTitle });
-
-        // 상태 업데이트
-        const newSession = { ...createRes.data, title: newTitle };
-        setSessions((prev) => [newSession, ...prev]);
+        setSessions((prev) => [
+          { ...createRes.data, title: newTitle },
+          ...prev,
+        ]);
         setCurrentSessionId(targetId);
       }
 
-      // 3. 메시지 전송
+      // 3. 데이터 전송 준비
       const formData = new FormData();
       formData.append("message", userContent || "파일을 분석해줘.");
+
+      // [NEW] 에이전트 모드 및 선택된 참조 자료 ID 전송
+      formData.append("agent_mode", activeAgent);
+      const selectedRefIds = references
+        .filter((r) => r.checked)
+        .map((r) => r.id);
+      formData.append("context_ids", JSON.stringify(selectedRefIds));
+
       pendingFiles.forEach((file) => formData.append("files", file));
 
+      // 4. API 호출
       const res = await api.post(`/chat/sessions/${targetId}/chat`, formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
 
+      // 5. 응답 처리
       setMessages((prev) => [...prev, { role: "ai", content: res.data.reply }]);
+
+      // [NEW] Retrieval 결과가 있다면 참조 목록에 추가 (Backend 응답 구조에 따름)
+      if (res.data.found_documents) {
+        // 예: found_documents = [{id: 101, title: 'Paper A', type: 'paper'}]
+        const newDocs = res.data.found_documents.map((doc) => ({
+          ...doc,
+          checked: false,
+        }));
+        setReferences((prev) => [...prev, ...newDocs]);
+        // 검색 결과가 있으면 패널 자동 열기
+        if (!isRefPanelOpen) setIsRefPanelOpen(true);
+      }
+
+      // [NEW] 업로드한 파일도 참조 목록에 추가 (서버에서 ID 리턴받았다고 가정)
+      if (res.data.uploaded_files) {
+        const newFiles = res.data.uploaded_files.map((f) => ({
+          ...f,
+          checked: true,
+        })); // 업로드 파일은 기본 선택
+        setReferences((prev) => [...prev, ...newFiles]);
+      }
+
       setPendingFiles([]);
     } catch (err) {
       console.error(err);
@@ -215,12 +273,14 @@ const Dashboard = ({ onLogout }) => {
       e.preventDefault();
       handleSendMessage();
     }
-    // Shift + Enter는 기본 동작(줄바꿈)을 수행하므로 별도 처리 불필요
   };
+
+  const activeAgentColor =
+    AGENTS.find((a) => a.id === activeAgent)?.color || "#64748b";
 
   return (
     <div className="dashboard-container">
-      {/* 모바일 오버레이 (사이드바 열렸을 때 배경) */}
+      {/* 모바일 오버레이 */}
       {isSidebarOpen && window.innerWidth <= 768 && (
         <div
           className="mobile-overlay"
@@ -228,17 +288,15 @@ const Dashboard = ({ onLogout }) => {
         />
       )}
 
-      {/* --- 사이드바 --- */}
+      {/* --- 1. Left Sidebar (History) --- */}
       <aside className={`sidebar ${!isSidebarOpen ? "closed" : ""}`}>
         <div className="sidebar-header">
           <div className="sidebar-title">
             <Microscope size={26} /> <span>TV-A</span>
           </div>
-          {/* 메뉴 닫기 버튼 (제목 우측) */}
           <button
             className="toggle-btn"
             onClick={() => setIsSidebarOpen(false)}
-            aria-label="Close menu"
           >
             <ChevronLeft size={24} />
           </button>
@@ -276,37 +334,42 @@ const Dashboard = ({ onLogout }) => {
         </button>
       </aside>
 
-      {/* --- 메인 영역 --- */}
+      {/* --- 2. Main Chat Area --- */}
       <main className="chat-main">
-        {/* 메뉴 열기 버튼 (사이드바 닫혔을 때만 보임) */}
         {!isSidebarOpen && (
           <button
-            className="sidebar-closed-toggle"
+            className="sidebar-closed-toggle left"
             onClick={() => setIsSidebarOpen(true)}
-            aria-label="Open menu"
           >
             <Menu size={20} />
           </button>
         )}
 
+        {/* [NEW] 우측 패널 토글 버튼 (헤더 영역) */}
+        {!isRefPanelOpen && (
+          <button
+            className="sidebar-closed-toggle right"
+            onClick={() => setIsRefPanelOpen(true)}
+            title="Open Reference Panel"
+          >
+            <BookOpen size={20} />
+          </button>
+        )}
+
         <div className="message-container" ref={scrollRef}>
-          {/* 빈 화면 안내 (세션이 선택되지 않았거나 메시지가 없을 때) */}
           {messages.length === 0 && !currentSessionId && (
             <div className="empty-state">
               <Microscope
                 size={56}
                 style={{ marginBottom: 20, opacity: 0.2 }}
               />
-              <h3>무엇을 도와드릴까요?</h3>
-              <p style={{ marginTop: 10, fontSize: 14 }}>
-                새로운 연구 분석을 시작하려면 아래에 질문을 입력하세요.
-              </p>
+              <h3>AI Research Assistant</h3>
+              <p>원하는 에이전트를 선택하고 연구를 시작하세요.</p>
             </div>
           )}
 
           {messages.map((m, i) => (
             <div key={i} className={`msg-bubble ${m.role}`}>
-              {/* AI 메시지는 마크다운 렌더링, 유저는 텍스트 그대로 */}
               {m.role === "ai" ? (
                 <ReactMarkdown
                   className="markdown-body"
@@ -322,13 +385,39 @@ const Dashboard = ({ onLogout }) => {
 
           {isWaiting && (
             <div className="msg-bubble ai loading-msg">
-              <Loader2 className="animate-spin" size={16} /> 분석 중...
+              <Loader2 className="animate-spin" size={16} />
+              <span style={{ color: activeAgentColor, fontWeight: 600 }}>
+                {AGENTS.find((a) => a.id === activeAgent).name}
+              </span>
+              가 분석 중입니다...
             </div>
           )}
         </div>
 
-        {/* 하단 입력 영역 */}
+        {/* --- Input Area with Agent Selector --- */}
         <div className="input-area-wrapper" onDragEnter={handleDrag}>
+          {/* [NEW] Agent Selector Tabs */}
+          <div className="agent-selector">
+            {AGENTS.map((agent) => (
+              <button
+                key={agent.id}
+                className={`agent-tab ${
+                  activeAgent === agent.id ? "active" : ""
+                }`}
+                onClick={() => setActiveAgent(agent.id)}
+                style={{
+                  borderColor:
+                    activeAgent === agent.id ? agent.color : "transparent",
+                  color: activeAgent === agent.id ? agent.color : "#64748b",
+                }}
+              >
+                <agent.icon size={16} />
+                <span>{agent.name}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Drag Overlay */}
           {dragActive && (
             <div
               className="drag-overlay"
@@ -344,6 +433,7 @@ const Dashboard = ({ onLogout }) => {
             </div>
           )}
 
+          {/* File Preview */}
           {pendingFiles.length > 0 && (
             <div className="file-preview-container">
               {pendingFiles.map((f, i) => (
@@ -362,7 +452,11 @@ const Dashboard = ({ onLogout }) => {
             </div>
           )}
 
-          <div className="input-box-container">
+          {/* Input Box */}
+          <div
+            className="input-box-container"
+            style={{ border: `1px solid ${activeAgentColor}40` }}
+          >
             <label className="attach-btn-wrapper">
               <Paperclip size={24} className="action-icon" />
               <input
@@ -374,16 +468,17 @@ const Dashboard = ({ onLogout }) => {
               />
             </label>
 
-            {/* textarea로 변경 */}
             <textarea
               ref={textareaRef}
               className="main-text-input"
               value={input}
               onChange={handleInputResize}
               onKeyDown={handleKeyDown}
-              placeholder="질문을 입력하세요..."
+              placeholder={`${
+                AGENTS.find((a) => a.id === activeAgent).name
+              }에게 질문하기...`}
               disabled={isWaiting}
-              rows={1} // 기본 줄 수
+              rows={1}
             />
 
             <button
@@ -394,12 +489,77 @@ const Dashboard = ({ onLogout }) => {
               {isWaiting ? (
                 <Loader2 className="animate-spin" size={24} />
               ) : (
-                <Send size={24} className="action-icon" />
+                <Send
+                  size={24}
+                  className="action-icon"
+                  style={{ color: activeAgentColor }}
+                />
               )}
             </button>
           </div>
         </div>
       </main>
+
+      {/* --- 3. [NEW] Right Sidebar (Reference Manager) --- */}
+      <aside className={`right-sidebar ${!isRefPanelOpen ? "closed" : ""}`}>
+        <div className="right-sidebar-header">
+          <div className="header-left">
+            <BookOpen size={18} />
+            <h3>References</h3>
+            <span className="badge">{references.length}</span>
+          </div>
+          <button
+            className="toggle-btn text-dark"
+            onClick={() => setIsRefPanelOpen(false)}
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="reference-list">
+          {references.length === 0 ? (
+            <div className="empty-ref">
+              <Search size={32} />
+              <p>
+                검색된 논문이나
+                <br />
+                업로드된 파일이 없습니다.
+              </p>
+            </div>
+          ) : (
+            references.map((ref) => (
+              <div
+                key={ref.id}
+                className={`ref-item ${ref.checked ? "selected" : ""}`}
+              >
+                <div className="ref-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={ref.checked}
+                    onChange={() => toggleReference(ref.id)}
+                  />
+                </div>
+                <div className="ref-info">
+                  <span className={`ref-type ${ref.type}`}>{ref.type}</span>
+                  <p className="ref-title" title={ref.title}>
+                    {ref.title}
+                  </p>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="right-sidebar-footer">
+          <div className="footer-info">
+            <CheckSquare size={14} />
+            <span>Selected: {references.filter((r) => r.checked).length}</span>
+          </div>
+          <p className="help-text">
+            선택한 자료가 다음 답변 생성에 사용됩니다.
+          </p>
+        </div>
+      </aside>
     </div>
   );
 };
