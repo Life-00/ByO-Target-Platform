@@ -1,0 +1,46 @@
+# app/agents/retriever/semantic_ranker.py
+from __future__ import annotations
+
+from typing import Dict, List, Tuple
+import math
+
+from app.core.embeddings import UpstageChromaEmbedding
+from app.schemas.retrieval import Paper
+
+
+def _cosine(a: List[float], b: List[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    na = math.sqrt(sum(x * x for x in a))
+    nb = math.sqrt(sum(x * x for x in b))
+    return dot / (na * nb + 1e-12)
+
+
+class SemanticRanker:
+    def __init__(self):
+        self.emb = UpstageChromaEmbedding()
+
+    def rank(self, query_text: str, papers: List[Paper], top_n: int = 200) -> Tuple[List[Paper], Dict[str, float]]:
+        if not papers:
+            return [], {}
+
+        qv = self.emb.embed_query(query_text)
+
+        doc_texts = []
+        for p in papers:
+            abs_text = " ".join([s.text for s in p.abstract_sentences])
+            doc_texts.append(f"{p.title}\n{abs_text}")
+
+        dvs = self.emb(doc_texts)
+
+        scores: Dict[str, float] = {}
+        scored: List[Tuple[str, float]] = []
+        for p, dv in zip(papers, dvs):
+            s = _cosine(qv, dv)
+            scores[p.pmid] = s
+            scored.append((p.pmid, s))
+
+        scored.sort(key=lambda x: x[1], reverse=True)
+        top_pmids = set([pmid for pmid, _ in scored[: min(top_n, len(scored))]])
+        top_papers = [p for p in papers if p.pmid in top_pmids]
+
+        return top_papers, scores
