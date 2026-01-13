@@ -15,4 +15,4 @@ llm_client = OpenAI(
     api_key=UPSTAGE_API_KEY,
 )
 
-DEFAULT_LLM_MODEL = "solar-pro-2"
+DEFAULT_LLM_MODEL = "solar-pro2"
