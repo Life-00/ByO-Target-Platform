@@ -19,12 +19,11 @@ import {
   BookOpen,
   CheckSquare,
   Layers,
-  FileUp, // 파일 업로드 아이콘
+  FileUp,
 } from "lucide-react";
 import api from "../../api";
 import "./Dashboard.css";
 
-// 에이전트 정의
 const AGENTS = [
   { id: "general", name: "General Chat", icon: Layers, color: "#64748b" },
   { id: "retrieval", name: "Paper Search", icon: Search, color: "#0ea5e9" },
@@ -40,8 +39,7 @@ const Dashboard = ({ onLogout }) => {
   const [input, setInput] = useState("");
   const [isWaiting, setIsWaiting] = useState(false);
 
-  // [핵심] 참조 자료 통합 관리 (서버 파일 + 로컬 업로드 대기 파일)
-  // 구조: { id: string|number, title: string, type: 'file'|'paper', checked: boolean, file?: File, isLocal?: boolean }
+  // References: { id, title, type(ext), checked, isLocal, isLoading, file }
   const [references, setReferences] = useState([]);
 
   const [activeAgent, setActiveAgent] = useState("general");
@@ -51,7 +49,7 @@ const Dashboard = ({ onLogout }) => {
 
   const scrollRef = useRef(null);
   const textareaRef = useRef(null);
-  const fileInputRef = useRef(null); // 숨겨진 파일 인풋 참조
+  const fileInputRef = useRef(null);
   const isInitializing = useRef(false);
 
   // --- 초기화 로직 ---
@@ -81,38 +79,31 @@ const Dashboard = ({ onLogout }) => {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // 자동 스크롤
+  // 스크롤 자동 조정
   useEffect(() => {
-    if (scrollRef.current) {
+    if (scrollRef.current)
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
   }, [messages, isWaiting, input]);
 
   // --- 핸들러 ---
 
-  // 세션 선택
   const handleSelectSession = async (id) => {
     setCurrentSessionId(id);
     try {
       const msgRes = await api.get(`/chat/sessions/${id}/messages`);
       setMessages(msgRes.data);
-
-      // TODO: 백엔드에서 해당 세션의 문서 목록(context)을 가져와 references에 복원해야 함
-      // const docRes = await api.get(`/chat/sessions/${id}/documents`);
-      // setReferences(docRes.data);
-
-      setReferences([]); // 임시 초기화
+      // TODO: 서버에서 저장된 Reference 불러오는 API 연동 필요
+      setReferences([]);
       if (window.innerWidth <= 768) setIsSidebarOpen(false);
     } catch (err) {
       console.error(err);
     }
   };
 
-  // 새 채팅 (모든 상태 초기화)
   const handleResetChat = () => {
     setCurrentSessionId(null);
     setMessages([]);
-    setReferences([]); // 참조 파일 목록도 초기화
+    setReferences([]);
     setInput("");
     setActiveAgent("general");
     if (window.innerWidth <= 768) setIsSidebarOpen(false);
@@ -131,14 +122,13 @@ const Dashboard = ({ onLogout }) => {
     }
   };
 
-  // [Right Sidebar] 파일 선택 핸들러 (중복 방지 & Reference로 추가)
+  // [수정됨] 파일 선택 핸들러 (확장자 추출 + 로딩 시뮬레이션)
   const handleFileSelection = (files) => {
     const newFiles = Array.from(files);
 
-    // 중복 체크 (제목 기준)
+    // 중복 체크
     const uniqueFiles = newFiles.filter((file) => {
-      const isDuplicate = references.some((ref) => ref.title === file.name);
-      return !isDuplicate;
+      return !references.some((ref) => ref.title === file.name);
     });
 
     if (uniqueFiles.length === 0 && newFiles.length > 0) {
@@ -146,27 +136,35 @@ const Dashboard = ({ onLogout }) => {
       return;
     }
 
-    const newRefs = uniqueFiles.map((file, index) => ({
-      id: `local-${Date.now()}-${index}`, // 임시 ID
-      title: file.name,
-      type: "file",
-      checked: true, // 업로드 시 기본 선택
-      isLocal: true, // 로컬 파일 표시
-      file: file, // 실제 파일 객체
-    }));
+    // 1. 초기 상태: 로딩 중 (isLoading: true)
+    const newRefs = uniqueFiles.map((file, index) => {
+      const ext = file.name.split(".").pop().toUpperCase() || "FILE";
+      return {
+        id: `local-${Date.now()}-${index}`,
+        title: file.name,
+        type: ext, // 확장자
+        checked: true,
+        isLocal: true,
+        isLoading: true, // 로딩 상태 시작
+        file: file,
+      };
+    });
 
     setReferences((prev) => [...prev, ...newRefs]);
-
-    // 파일 추가 시 우측 패널 자동 열기
     if (!isRefPanelOpen) setIsRefPanelOpen(true);
+
+    // 2. 로딩 완료 시뮬레이션 (0.8초 후 스피너 -> 체크박스)
+    setTimeout(() => {
+      setReferences((prev) =>
+        prev.map((ref) => (ref.isLoading ? { ...ref, isLoading: false } : ref))
+      );
+    }, 800);
   };
 
-  // 참조 자료 삭제 (취소)
   const removeReference = (id) => {
     setReferences((prev) => prev.filter((ref) => ref.id !== id));
   };
 
-  // 체크박스 토글
   const toggleReference = (id) => {
     setReferences((prev) =>
       prev.map((ref) =>
@@ -175,7 +173,7 @@ const Dashboard = ({ onLogout }) => {
     );
   };
 
-  // [Right Sidebar] 드래그 앤 드롭
+  // 드래그 앤 드롭
   const handleDrag = (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -192,7 +190,6 @@ const Dashboard = ({ onLogout }) => {
     }
   };
 
-  // 입력창 높이 자동 조절
   const handleInputResize = (e) => {
     setInput(e.target.value);
     if (textareaRef.current) {
@@ -203,14 +200,11 @@ const Dashboard = ({ onLogout }) => {
 
   // 메시지 전송
   const handleSendMessage = async () => {
-    // 전송할 로컬 파일 확인
     const localFilesToSend = references.filter((r) => r.isLocal && r.checked);
 
     if ((!input.trim() && localFilesToSend.length === 0) || isWaiting) return;
 
     const userContent = input.trim();
-
-    // 1. UI 업데이트
     setMessages((prev) => [
       ...prev,
       { role: "user", content: userContent || "파일 분석 요청" },
@@ -222,7 +216,6 @@ const Dashboard = ({ onLogout }) => {
     try {
       let targetId = currentSessionId;
 
-      // 2. 세션 없으면 생성
       if (!targetId) {
         const createRes = await api.post("/chat/sessions");
         targetId = createRes.data.id;
@@ -238,53 +231,42 @@ const Dashboard = ({ onLogout }) => {
         setCurrentSessionId(targetId);
       }
 
-      // 3. FormData 구성
       const formData = new FormData();
       formData.append("message", userContent || "파일을 분석해줘.");
       formData.append("agent_mode", activeAgent);
 
-      // (A) 이미 서버에 있는 파일 ID들 (isLocal이 아닌 것들)
+      // 이미 서버에 있는 파일 ID
       const serverRefIds = references
         .filter((r) => !r.isLocal && r.checked)
         .map((r) => r.id);
       formData.append("context_ids", JSON.stringify(serverRefIds));
 
-      // (B) 새로 업로드할 파일들 (isLocal인 것들)
+      // 새로 업로드할 파일
       localFilesToSend.forEach((ref) => {
         formData.append("files", ref.file);
       });
 
-      // 4. API 전송
       const res = await api.post(`/chat/sessions/${targetId}/chat`, formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
 
-      // 5. 응답 처리
       setMessages((prev) => [...prev, { role: "ai", content: res.data.reply }]);
 
-      // 6. 업로드 완료된 로컬 파일 상태 업데이트 (서버 파일로 전환)
+      // 업로드 성공 처리 (로컬 -> 서버 파일로 전환 가정)
       if (res.data.uploaded_files) {
-        // 백엔드가 업로드된 파일의 메타데이터 리스트를 반환한다고 가정
-        // 여기서는 간단히 로컬 플래그를 제거하는 로직으로 구현
         setReferences((prev) => {
-          // 기존 서버 파일 + (응답으로 받은 새 파일들로 로컬 파일 대체)
           const existingServerFiles = prev.filter((r) => !r.isLocal);
-
-          // 새 파일들 (실제로는 ID 매핑이 필요함)
-          const newlyUploaded = localFilesToSend.map((localFile, idx) => ({
+          // 편의상 로컬 파일을 서버 파일로 간주하여 플래그 변경
+          const newlyUploaded = localFilesToSend.map((localFile) => ({
             ...localFile,
             isLocal: false,
-            // 서버에서 받은 ID가 있다면 교체: id: res.data.uploaded_files[idx].id
           }));
-
-          // 체크 안 된 로컬 파일은 유지
           const remainingLocal = prev.filter((r) => r.isLocal && !r.checked);
-
           return [...existingServerFiles, ...newlyUploaded, ...remainingLocal];
         });
       }
 
-      // 7. 검색 결과(Retrieval)가 있다면 추가
+      // 검색 결과 추가
       if (res.data.found_documents) {
         const newDocs = res.data.found_documents.map((doc) => ({
           ...doc,
@@ -307,7 +289,6 @@ const Dashboard = ({ onLogout }) => {
 
   return (
     <div className="dashboard-container">
-      {/* 모바일 오버레이 */}
       {isSidebarOpen && window.innerWidth <= 768 && (
         <div
           className="mobile-overlay"
@@ -315,7 +296,7 @@ const Dashboard = ({ onLogout }) => {
         />
       )}
 
-      {/* --- 1. Left Sidebar (History) --- */}
+      {/* 1. Left Sidebar (History) */}
       <aside className={`sidebar ${!isSidebarOpen ? "closed" : ""}`}>
         <div className="sidebar-header">
           <div className="sidebar-title">
@@ -361,9 +342,8 @@ const Dashboard = ({ onLogout }) => {
         </button>
       </aside>
 
-      {/* --- 2. Main Chat Area --- */}
+      {/* 2. Main Chat Area */}
       <main className="chat-main">
-        {/* 사이드바 토글 버튼들 */}
         {!isSidebarOpen && (
           <button
             className="sidebar-closed-toggle left"
@@ -381,7 +361,6 @@ const Dashboard = ({ onLogout }) => {
           </button>
         )}
 
-        {/* 메시지 리스트 */}
         <div className="message-container" ref={scrollRef}>
           {messages.length === 0 && !currentSessionId && (
             <div className="empty-state">
@@ -389,7 +368,7 @@ const Dashboard = ({ onLogout }) => {
                 size={56}
                 style={{ marginBottom: 20, opacity: 0.2 }}
               />
-              <h3>AI Research Assistant</h3>
+              <h3>Target Validation Assistant</h3>
               <p>원하는 에이전트를 선택하고 연구를 시작하세요.</p>
             </div>
           )}
@@ -411,18 +390,13 @@ const Dashboard = ({ onLogout }) => {
 
           {isWaiting && (
             <div className="msg-bubble ai loading-msg">
-              <Loader2 className="animate-spin" size={16} />
-              <span style={{ color: activeAgentColor, fontWeight: 600 }}>
-                {AGENTS.find((a) => a.id === activeAgent).name}
-              </span>
-              가 분석 중입니다...
+              <Loader2 className="animate-spin" size={16} /> 분석 중...
             </div>
           )}
         </div>
 
-        {/* --- Floating Input Wrapper --- */}
+        {/* Floating Input Area */}
         <div className="floating-input-wrapper">
-          {/* Agent Selector (Floating Top) */}
           <div className="agent-selector-floating">
             {AGENTS.map((agent) => (
               <button
@@ -438,13 +412,11 @@ const Dashboard = ({ onLogout }) => {
                     activeAgent === agent.id ? agent.color : "transparent",
                 }}
               >
-                <agent.icon size={14} />
-                <span>{agent.name}</span>
+                <agent.icon size={14} /> <span>{agent.name}</span>
               </button>
             ))}
           </div>
 
-          {/* Input Box */}
           <div
             className="input-box-container"
             style={{ boxShadow: `0 4px 20px ${activeAgentColor}15` }}
@@ -481,7 +453,7 @@ const Dashboard = ({ onLogout }) => {
         </div>
       </main>
 
-      {/* --- 3. Right Sidebar (Reference & Upload) --- */}
+      {/* 3. Right Sidebar (Reference & Upload) */}
       <aside
         className={`right-sidebar ${!isRefPanelOpen ? "closed" : ""} ${
           dragActive ? "drag-active" : ""
@@ -496,9 +468,7 @@ const Dashboard = ({ onLogout }) => {
             <BookOpen size={18} />
             <h3>References</h3>
           </div>
-
           <div className="header-actions">
-            {/* 업로드 버튼 */}
             <button
               className="icon-btn"
               onClick={() => fileInputRef.current?.click()}
@@ -513,7 +483,6 @@ const Dashboard = ({ onLogout }) => {
               ref={fileInputRef}
               onChange={(e) => handleFileSelection(e.target.files)}
             />
-            {/* 닫기 버튼 */}
             <button
               className="icon-btn"
               onClick={() => setIsRefPanelOpen(false)}
@@ -523,7 +492,6 @@ const Dashboard = ({ onLogout }) => {
           </div>
         </div>
 
-        {/* 드래그 오버레이 메시지 */}
         {dragActive && (
           <div className="sidebar-drag-overlay">
             <UploadCloud size={40} />
@@ -547,25 +515,34 @@ const Dashboard = ({ onLogout }) => {
                 key={ref.id}
                 className={`ref-item ${ref.checked ? "selected" : ""}`}
               >
-                <div className="ref-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={ref.checked}
-                    onChange={() => toggleReference(ref.id)}
-                  />
+                {/* 로딩 중이면 스피너, 아니면 체크박스 */}
+                <div className="ref-checkbox-area">
+                  {ref.isLoading ? (
+                    <Loader2
+                      className="animate-spin"
+                      size={14}
+                      color="#94a3b8"
+                    />
+                  ) : (
+                    <input
+                      type="checkbox"
+                      className="custom-checkbox"
+                      checked={ref.checked}
+                      onChange={() => toggleReference(ref.id)}
+                    />
+                  )}
                 </div>
+
                 <div className="ref-info">
                   <div className="ref-meta">
-                    <span className={`ref-type ${ref.type}`}>{ref.type}</span>
-                    {ref.isLocal && (
-                      <span className="ref-badge-local">Ready</span>
-                    )}
+                    {/* 확장자 배지 */}
+                    <span className="ref-ext-badge">{ref.type}</span>
                   </div>
                   <p className="ref-title" title={ref.title}>
                     {ref.title}
                   </p>
                 </div>
-                {/* 삭제(취소) 버튼 */}
+
                 <button
                   className="ref-delete-btn"
                   onClick={() => removeReference(ref.id)}
@@ -582,11 +559,6 @@ const Dashboard = ({ onLogout }) => {
             <CheckSquare size={14} />
             <span>Selected: {references.filter((r) => r.checked).length}</span>
           </div>
-          <p className="help-text">
-            선택된 자료는 Agent에게
-            <br />
-            컨텍스트로 제공됩니다.
-          </p>
         </div>
       </aside>
     </div>
