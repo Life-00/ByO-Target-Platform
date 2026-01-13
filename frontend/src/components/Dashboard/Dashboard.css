@@ -1,0 +1,370 @@
+/* =========================================
+   1. 기본 레이아웃 & 테마
+   ========================================= */
+.dashboard-container {
+  display: flex;
+  height: 100vh;
+  background-color: #f8fafc;
+}
+
+.sidebar {
+  width: 260px;
+  background-color: var(--bio-secondary);
+  color: white;
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+}
+
+.chat-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  background: white;
+}
+
+/* =========================================
+   2. 사이드바 스타일
+   ========================================= */
+.sidebar-title {
+  font-size: 20px;
+  font-weight: 800;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: white;
+}
+
+.new-chat-btn {
+  width: 100%;
+  padding: 12px;
+  background-color: var(--bio-primary);
+  color: white;
+  border: none;
+  border-radius: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 30px;
+  margin-bottom: 30px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 12px rgba(15, 118, 110, 0.2);
+}
+
+.new-chat-btn:hover {
+  background-color: #0d615a;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 15px rgba(15, 118, 110, 0.3);
+}
+
+.chat-list-header {
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  margin-bottom: 12px;
+  padding-left: 8px;
+}
+
+.chat-item-info {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+}
+
+.chat-item {
+  padding: 12px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  margin-bottom: 6px;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  color: #94a3b8;
+  transition: all 0.2s ease;
+}
+
+.chat-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #f1f5f9;
+}
+
+.chat-item.active {
+  background: rgba(45, 212, 191, 0.1);
+  color: #2dd4bf;
+  font-weight: 600;
+}
+
+.session-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.delete-session-icon {
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.chat-item:hover .delete-session-icon {
+  opacity: 1;
+}
+
+.logout-btn {
+  background: none;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: auto;
+  padding: 12px 14px;
+  transition: color 0.2s;
+}
+
+.logout-btn:hover {
+  color: #ef4444;
+}
+
+/* =========================================
+   3. 채팅 메시지 영역
+   ========================================= */
+.message-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 30px;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.msg-bubble {
+  max-width: 70%;
+  padding: 12px 16px;
+  border-radius: 18px;
+  font-size: 15px;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.msg-bubble.user {
+  align-self: flex-end;
+  background-color: var(--bio-primary);
+  color: white;
+  border-bottom-right-radius: 2px;
+}
+
+.msg-bubble.ai {
+  align-self: flex-start;
+  background-color: #f1f5f9;
+  color: #1e293b;
+  border: 1px solid #e2e8f0;
+  border-bottom-left-radius: 2px;
+}
+
+.loading-msg {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #64748b;
+  font-size: 14px;
+}
+
+/* =========================================
+   4. 입력 영역 & 드래그 오버레이 (수정됨)
+   ========================================= */
+
+/* 🔥 중요: 오버레이 위치 기준점 설정 */
+.input-area-wrapper {
+  position: relative;
+  padding: 20px 30px;
+  border-top: 1px solid #f1f5f9;
+  background-color: white;
+}
+
+/* 🔥 드래그 앤 드롭 오버레이 스타일 (입력창 영역에만 표시) */
+.drag-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(15, 118, 110, 0.96); /* 배경색 투명도 조절 */
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(2px);
+  transition: all 0.3s ease;
+  border-radius: 4px; /* 모서리 살짝 둥글게 */
+}
+
+.drag-content {
+  text-align: center;
+  color: white;
+  animation: bounce 1.5s infinite;
+  pointer-events: none; /* 드래그 이벤트가 부모로 전달되도록 */
+}
+
+.drag-icon {
+  margin-bottom: 12px;
+  color: #2dd4bf;
+}
+
+.drag-content p {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0;
+}
+
+@keyframes bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+/* =========================================
+   5. 파일 프리뷰 & 입력창 컴포넌트
+   ========================================= */
+
+/* 파일 아이콘 프리뷰 컨테이너 */
+.file-preview-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 0 5px;
+}
+
+/* 파일 아이콘 래퍼 */
+.file-icon-wrapper {
+  position: relative;
+  cursor: pointer;
+}
+
+/* 아이콘 박스 스타일 */
+.file-icon-box {
+  width: 48px;
+  height: 48px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  transition: all 0.2s ease;
+}
+
+.file-icon-wrapper:hover .file-icon-box {
+  background: white;
+  border-color: var(--bio-primary);
+  color: var(--bio-primary);
+  transform: translateY(-3px);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+}
+
+/* 삭제 버튼 배지 */
+.file-remove-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  background: #ef4444;
+  color: white;
+  border: none;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  transition: transform 0.2s;
+}
+
+.file-remove-badge:hover {
+  transform: scale(1.2);
+}
+
+/* 입력창 컨테이너 */
+.input-box-container {
+  display: flex;
+  align-items: center;
+  background: #f1f5f9;
+  padding: 8px 18px;
+  border-radius: 12px;
+  gap: 14px;
+}
+
+.main-text-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  outline: none;
+  padding: 10px 0;
+  font-size: 16px;
+}
+
+.action-icon {
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.action-icon:hover {
+  color: var(--bio-primary);
+  transform: scale(1.1);
+}
+
+.attach-btn-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.icon-send-btn {
+  background: none;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  cursor: pointer;
+}
+
+.icon-send-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.icon-send-btn:disabled .action-icon:hover {
+  transform: none;
+  color: #64748b;
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}

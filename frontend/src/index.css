@@ -1,0 +1,18 @@
+:root {
+  --bio-primary: #0f766e;
+  --bio-secondary: #1e1b4b;
+  --bio-bg: #f8fafc;
+  --text-main: #1e293b;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  background-color: var(--bio-bg);
+  color: var(--text-main);
+}
+
+* {
+  box-sizing: border-box;
+}
