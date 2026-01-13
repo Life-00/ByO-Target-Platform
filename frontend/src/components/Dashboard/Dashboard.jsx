@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
+import ReactMarkdown from "react-markdown"; // 추가
+import remarkGfm from "remark-gfm"; // 추가
 import {
   Microscope,
   MessageSquare,
@@ -25,6 +27,7 @@ const Dashboard = ({ onLogout }) => {
   const [dragActive, setDragActive] = useState(false);
 
   const scrollRef = useRef(null);
+  const textareaRef = useRef(null);
   const isInitializing = useRef(false);
 
   useEffect(() => {
@@ -46,10 +49,11 @@ const Dashboard = ({ onLogout }) => {
     init();
   }, []);
 
+  // 메시지가 추가되거나 입력창 높이가 변할 때 스크롤 조정
   useEffect(() => {
     if (scrollRef.current)
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [messages, isWaiting]);
+  }, [messages, isWaiting, input]);
 
   const handleSelectSession = async (id) => {
     setCurrentSessionId(id);
@@ -114,6 +118,22 @@ const Dashboard = ({ onLogout }) => {
     }
   };
 
+  // 입력창 높이 자동 조절 함수
+  const handleInputResize = (e) => {
+    setInput(e.target.value);
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+    }
+  };
+
+  // 전송 후 높이 초기화
+  const resetInputHeight = () => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+    }
+  };
+
   const handleSendMessage = async () => {
     if (
       (!input.trim() && pendingFiles.length === 0) ||
@@ -131,6 +151,7 @@ const Dashboard = ({ onLogout }) => {
       { role: "user", content: userContent || "파일 분석 요청" },
     ]);
     setInput("");
+    resetInputHeight();
     setIsWaiting(true);
 
     try {
@@ -158,6 +179,14 @@ const Dashboard = ({ onLogout }) => {
     } finally {
       setIsWaiting(false);
     }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
+    // Shift + Enter는 기본 동작(줄바꿈)을 수행하므로 별도 처리 불필요
   };
 
   return (
@@ -200,7 +229,17 @@ const Dashboard = ({ onLogout }) => {
         <div className="message-container" ref={scrollRef}>
           {messages.map((m, i) => (
             <div key={i} className={`msg-bubble ${m.role}`}>
-              {m.content}
+              {/* AI 메시지는 마크다운 렌더링, 유저는 텍스트 그대로 */}
+              {m.role === "ai" ? (
+                <ReactMarkdown
+                  className="markdown-body"
+                  remarkPlugins={[remarkGfm]}
+                >
+                  {m.content}
+                </ReactMarkdown>
+              ) : (
+                m.content
+              )}
             </div>
           ))}
           {isWaiting && (
@@ -255,18 +294,19 @@ const Dashboard = ({ onLogout }) => {
                 disabled={isWaiting}
               />
             </label>
-            <input
+
+            {/* textarea로 변경 */}
+            <textarea
+              ref={textareaRef}
               className="main-text-input"
               value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) =>
-                e.key === "Enter" &&
-                !e.shiftKey &&
-                (e.preventDefault(), handleSendMessage())
-              }
+              onChange={handleInputResize}
+              onKeyDown={handleKeyDown}
               placeholder="질문을 입력하세요..."
               disabled={!currentSessionId || isWaiting}
+              rows={1} // 기본 줄 수
             />
+
             <button
               className="icon-send-btn"
               onClick={handleSendMessage}
