@@ -52,16 +52,25 @@ class PaperFilter:
                 temperature=0,
             )
 
-            obj = json.loads(resp.choices[0].message.content)
-            meta[p.pmid] = obj
+            raw = resp.choices[0].message.content
+            try:
+                obj = json.loads(raw)
+            except Exception:
+                obj = {
+                    "decision": "UNCERTAIN",
+                    "confidence": 0.0,
+                    "reasons": ["json_parse_error"],
+                    "raw": raw,
+                }
 
+            meta[p.pmid] = obj
             decision = (obj.get("decision") or "").upper()
+
             if decision == "KEEP":
                 keep_pmids.add(p.pmid)
-            elif decision == "UNCERTAIN":
-                if self.keep_uncertain:
-                    keep_pmids.add(p.pmid)
-            # DROP은 무시
+            elif decision == "UNCERTAIN" and self.keep_uncertain:
+                keep_pmids.add(p.pmid)
+            # DROP이면 keep에 넣지 않음
 
         if self.keep_remaining:
             for p in remaining:

@@ -22,7 +22,6 @@ class QueryExpander:
                 if expanded:
                     return expanded
             except Exception:
-                # LLM 실패 시 rule fallback
                 pass
         return self._rule_expand(uq)
 
@@ -33,18 +32,23 @@ class QueryExpander:
         expanded: List[ExpandedQuery] = []
         if base:
             expanded.append({"query_id": f"{uq.query_id}::q0", "query": base, "reason": "keyword"})
+
         if uq.hypothesis and base:
-            expanded.append({
-                "query_id": f"{uq.query_id}::q1",
-                "query": f"{base} AND ({uq.hypothesis})",
-                "reason": "keyword"
-            })
+            expanded.append(
+                {
+                    "query_id": f"{uq.query_id}::q1",
+                    "query": f"{base} AND ({uq.hypothesis})",
+                    "reason": "keyword",
+                }
+            )
+
         if uq.intent and uq.intent != base:
             expanded.append({"query_id": f"{uq.query_id}::q2", "query": uq.intent, "reason": "keyword"})
 
-        # 안전장치
+        # 마지막 안전장치
         if not expanded:
             expanded = [{"query_id": f"{uq.query_id}::q0", "query": uq.query_id, "reason": "other"}]
+
         return expanded
 
     def _llm_expand(self, uq: UserQuery) -> Dict[str, Any]:
@@ -55,7 +59,7 @@ class QueryExpander:
             "organ": uq.organ,
             "intent": uq.intent,
             "hypothesis": uq.hypothesis,
-            "constraints": uq.constraints.model_dump() if uq.constraints else None,
+            "constraints": uq.constraints.model_dump() if getattr(uq, "constraints", None) else None,
         }
 
         resp = llm_client.chat.completions.create(

@@ -1,10 +1,8 @@
 # app/agents/retriever/pipeline.py
 from __future__ import annotations
 
-from typing import Dict, List, Optional
-
 from app.schemas.query import UserQuery
-from app.schemas.retrieval import PaperCorpus, Paper
+from app.schemas.retrieval import PaperCorpus
 
 from app.agents.retriever.query_expander import QueryExpander
 from app.agents.retriever.pubmed_fetcher import PubMedFetcher
@@ -24,31 +22,37 @@ class RetrieverPipeline:
         self.expander = QueryExpander(use_llm=use_llm_expand)
         self.fetcher = PubMedFetcher(default_retmax=default_retmax)
         self.ranker = SemanticRanker()
-        self.use_llm_filter = use_llm_filter
-        self.semantic_top_n = semantic_top_n
         self.filter = PaperFilter(keep_eval_n=llm_keep_eval_n)
 
+        self.use_llm_filter = use_llm_filter
+        self.semantic_top_n = semantic_top_n
+
     def run(self, uq: UserQuery) -> PaperCorpus:
-        # 1) 쿼리 확장
+        # 1) Query expansion
         expanded_queries = self.expander.expand(uq)
 
-        # 2) PMID 수집(확장쿼리 합집합)
-        retmax = uq.constraints.max_results if (uq.constraints and uq.constraints.max_results) else None
+        # 2) Collect PMIDs (retmax: constraints 우선)
+        retmax = None
+        if getattr(uq, "constraints", None) is not None:
+            retmax = getattr(uq.constraints, "max_results", None)
+
         _, pmid_prov = self.fetcher.collect_pmids(expanded_queries, retmax=retmax)
 
-        # 3) fetch + parse (Paper 생성, query_id/retrieval_reason 주입)
+        # 3) Fetch + parse
         papers_raw = self.fetcher.fetch_and_parse(expanded_queries, pmid_prov)
 
-        # 4) 의미 기반 축소 (embedding rerank + topN)
-        qtext = " ".join([t for t in [uq.target_hint, uq.disease, uq.organ, uq.intent, uq.hypothesis] if t])
+        # 4) Semantic rerank + topN
+        qtext = " ".join(
+            [t for t in [uq.target_hint, uq.disease, uq.organ, uq.intent, uq.hypothesis] if t]
+        )
         papers_topn, _scores = self.ranker.rank(qtext, papers_raw, top_n=self.semantic_top_n)
 
-        # 5) keep/drop (선택)
+        # 5) keep/drop (optional)
         if self.use_llm_filter:
             kept, _meta = self.filter.filter(uq, papers_topn)
             final_papers = kept
         else:
             final_papers = papers_topn
 
-        # 6) PaperCorpus 반환
+        # 6) Output
         return PaperCorpus(query_id=uq.query_id, papers=final_papers)
