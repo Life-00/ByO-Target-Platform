@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import AuthContainer from "./components/Auth/AuthContainer";
 import Dashboard from "./components/Dashboard/Dashboard";
 import api from "./api";
+import "./App.css"; // CSS 파일 import 필수
 
 const App = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -43,8 +44,13 @@ const App = () => {
     setIsLoggedIn(false);
   };
 
+  // [수정됨] 텍스트 대신 스피너 UI 렌더링
   if (isLoading) {
-    return <div>세션을 확인 중입니다...</div>;
+    return (
+      <div className="loading-container">
+        <div className="loading-spinner"></div>
+      </div>
+    );
   }
 
   return (
