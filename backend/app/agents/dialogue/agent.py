@@ -1,8 +1,9 @@
+# app/agents/dialogue/agent.py
 from __future__ import annotations
 
 import json
 import uuid
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 from langgraph.graph import StateGraph, END
 
@@ -17,7 +18,7 @@ from app.core.llm import llm_client, DEFAULT_LLM_MODEL
 class DialogueAgent:
     """
     DialogueAgent
-    - 사용자 메시지 파싱 (LLM 기반: 분석 요청 vs 일상 대화 구분)
+    - 사용자 메시지 파싱 (LLM 기반: 지식 질문 vs 분석 요청 구분)
     - 누락 정보 질문
     - Orchestrator 실행
     - 결과 종합
@@ -46,9 +47,9 @@ class DialogueAgent:
             "route",
             self.route_after_parse,
             {
-                "end_turn": END,                # 대화 종료 (일상대화, 질문 등)
-                "run_pipeline": "run_pipeline", # 분석 파이프라인 실행
-                "handle_decision": "handle_decision", # 재검색 분기 처리
+                "end_turn": END,
+                "run_pipeline": "run_pipeline", 
+                "handle_decision": "handle_decision", 
             },
         )
 
@@ -59,8 +60,11 @@ class DialogueAgent:
     # -----------------------
     # Public Entry
     # -----------------------
-    def run(self, user_message: UserMessage) -> SystemResponse:
-        state: DialogueState = {"user_message": user_message}
+    def run(self, user_message: UserMessage, session_id: str = None, history: List[Dict] = None) -> SystemResponse:
+        state: DialogueState = {
+            "user_message": user_message,
+            "history": history or []
+        }
         final_state = self.graph.invoke(state)
         return final_state["response"]
 
@@ -70,6 +74,7 @@ class DialogueAgent:
     def node_parse(self, state: DialogueState) -> DialogueState:
         um = state["user_message"]
         text = getattr(um, "text", None) or getattr(um, "message", None) or ""
+        history = state.get("history", [])
 
         # 1. Yes/No 응답 판단
         decision = self._parse_yes_no(text)
@@ -77,8 +82,8 @@ class DialogueAgent:
             state["user_decision"] = decision
             return state
 
-        # 2. 사용자 질의 파싱 (의도 분류 포함)
-        parsed = self._llm_parse_user_text(text)
+        # 2. 사용자 질의 파싱 (히스토리 반영)
+        parsed = self._llm_parse_user_text(text, history)
         
         if not parsed:
             state["response"] = SystemResponse(
@@ -88,9 +93,10 @@ class DialogueAgent:
             )
             return state
 
-        # [일상 대화 처리] 의도가 'general_chat'이면 바로 응답 생성
+        # [수정됨] 일반 대화/지식 질문 처리
+        # intent_type이 'general_chat'이면, 파이프라인을 타지 않고 바로 LLM의 답변을 반환
         if parsed.get("intent_type") == "general_chat":
-            chat_response = parsed.get("response") or "네, 안녕하세요! 무엇을 도와드릴까요?"
+            chat_response = parsed.get("response") or "네, 무엇을 도와드릴까요?"
             state["response"] = SystemResponse(
                 type="chat", 
                 message=chat_response,
@@ -98,7 +104,7 @@ class DialogueAgent:
             )
             return state
 
-        # 3. 필수 필드 검증 (intent_type == 'analysis' 인 경우)
+        # 3. 필수 필드 검증 (intent_type == 'analysis' 인 경우만)
         missing = []
         if not parsed.get("target"):
             missing.append("타깃(유전자/약물)")
@@ -130,19 +136,9 @@ class DialogueAgent:
         return state
 
     def node_route(self, state: DialogueState) -> DialogueState:
-        """
-        [수정됨] 이 노드는 반드시 state(dict)를 반환해야 합니다.
-        경로 결정("end_turn" 등)은 여기서 하지 않고 route_after_parse에서 합니다.
-        """
-        # 1. 이미 앞단(Parse)에서 응답이 생성되었다면(일상대화, 에러 등) 그대로 통과
-        if state.get("response"):
-            return state
+        if state.get("response"): return state
+        if state.get("user_decision"): return state
 
-        # 2. 재검색 결정이면 통과
-        if state.get("user_decision"):
-            return state
-
-        # 3. UserQuery가 있는지 확인 (없으면 에러 처리)
         uq = state.get("user_query")
         if not uq:
             state["response"] = SystemResponse(
@@ -151,20 +147,6 @@ class DialogueAgent:
                 payload=None,
             )
             return state
-
-        # 4. 모든 정보가 충분함 -> 안내 메시지 세팅 (선택사항)
-        # (실제로는 run_pipeline 결과가 덮어쓰겠지만, 로그용으로 남김)
-        target_info = uq.target
-        if uq.disease:
-            target_info += f" ({uq.disease})"
-            
-        # 여기서 response를 설정하지 않고 pipeline으로 넘길 수도 있습니다.
-        # 하지만 일단 정보성 메시지를 state에 담아둡니다.
-        # state["response"] = SystemResponse(
-        #     type="info",
-        #     message=f"[{target_info}]에 대한 분석을 시작합니다.",
-        #     payload={"query_id": uq.query_id},
-        # )
         return state
 
     def node_run_pipeline(self, state: DialogueState) -> DialogueState:
@@ -236,27 +218,12 @@ class DialogueAgent:
         return state
 
     # -----------------------
-    # Router Logic (Conditional Edges)
+    # Router Logic
     # -----------------------
     def route_after_parse(self, state: DialogueState) -> str:
-        """
-        [수정됨] 다음 단계로 어디를 갈지 결정하는 함수 (문자열 반환)
-        """
-        # 1. 이미 응답이 있는 경우 (일상대화, 질문, 경고, 에러) -> 종료
-        if state.get("response"):
-            # 단, info 타입은 단순 로그성이라면 파이프라인 진행 가능.
-            # 하지만 현재 구조상 parse에서 chat/question/warning 생성 시 바로 종료가 맞음.
-            return "end_turn"
-
-        # 2. 재검색 결정 -> 핸들러로 이동
-        if state.get("user_decision"):
-            return "handle_decision"
-
-        # 3. UserQuery가 있으면 -> 파이프라인 실행
-        if "user_query" in state:
-            return "run_pipeline"
-
-        # 그 외 -> 종료
+        if state.get("response"): return "end_turn"
+        if state.get("user_decision"): return "handle_decision"
+        if "user_query" in state: return "run_pipeline"
         return "end_turn"
 
     # -----------------------
@@ -270,35 +237,44 @@ class DialogueAgent:
             return "no"
         return None
 
-    def _llm_parse_user_text(self, text: str) -> Dict[str, Any] | None:
-        system_prompt = """
+    def _llm_parse_user_text(self, text: str, history: List[Dict]) -> Dict[str, Any] | None:
+        """
+        LLM Parser 개선: 단순 질문(QA)과 분석 요청(Analysis)을 명확히 구분
+        """
+        recent_history = history[-5:] if history else []
+        history_text = json.dumps(recent_history, ensure_ascii=False)
+
+        system_prompt = f"""
         You are an intelligent assistant for biomedical research.
         Analyze the user's input and extract the intent and entities.
+        
+        **Conversation History:**
+        {history_text}
+        
+        **Instructions:**
+        1. Consider the 'Conversation History' to resolve context.
+        
+        2. Determine 'intent_type':
+           - "analysis": ONLY if the user explicitly asks to *verify*, *validate*, *analyze papers*, or *check evidence* for a specific hypothesis (e.g., "Verify if Aspirin cures headache", "Find papers on EGFR").
+           - "general_chat": If the user asks general knowledge questions (e.g., "What are treatments for Migraine?", "What is EGFR?"), lists, definitions, or casual greetings.
 
-        1. Determine 'intent_type':
-           - If the user is asking for biomedical analysis, drug validation, or mechanism research, set "intent_type": "analysis".
-           - If the user is just saying hello, asking general questions, or chatting, set "intent_type": "general_chat".
-
-        2. If "intent_type" is "analysis", extract:
-           - target: Gene, protein, or drug name.
-           - disease: Disease or condition.
-           - organ: Specific organ if mentioned.
-           - question: The core research question.
+        3. If "intent_type" is "analysis":
+           - Extract target, disease, organ, question.
            - response: null
 
-        3. If "intent_type" is "general_chat":
-           - Set all entities (target, disease, etc.) to null.
-           - response: Write a polite and helpful response to the user's input in Korean.
+        4. If "intent_type" is "general_chat":
+           - Set all entities (target, etc.) to null.
+           - response: Provide a helpful, professional answer to the user's question in Korean. (e.g., List the treatments for Migraine).
 
-        Return the result as a valid JSON object.
+        Return valid JSON.
+        
+        Example 1 (General QA):
+        Input: "편두통 치료법에는 뭐가 있어?"
+        JSON: {{"intent_type": "general_chat", "target": null, "response": "편두통 치료법으로는 약물 치료(트립탄제, 진통제 등)와 비약물 치료(생활습관 교정)가 있습니다..."}}
 
-        Example 1:
-        Input: "EGFR 폐암 효능 검증해줘"
-        JSON: {"intent_type": "analysis", "target": "EGFR", "disease": "Lung Cancer", "question": "Verify efficacy", "response": null}
-
-        Example 2:
-        Input: "안녕? 너는 누구니?"
-        JSON: {"intent_type": "general_chat", "target": null, "response": "안녕하세요! 저는 바이오메디컬 연구를 돕는 AI 어시스턴트입니다."}
+        Example 2 (Analysis Request):
+        Input: "그럼 트립탄제가 편두통에 효과가 있는지 검증해줘"
+        JSON: {{"intent_type": "analysis", "target": "Triptans", "disease": "Migraine", "question": "Verify efficacy"}}
         """
         
         try:
