@@ -2,7 +2,7 @@
 from typing import List
 import re
 
-from app.schemas.paper import Paper, AbstractSentence
+from app.schemas.retrieval import Paper, AbstractSentence, RetrievalReason
 
 
 def _extract_tag(record: str, tag: str) -> str:
@@ -18,7 +18,12 @@ def split_sentences(text: str) -> List[str]:
     return [s.strip() for s in sentences if len(s.strip()) > 5]
 
 
-def parse_medline(pmid: str, record: str) -> Paper:
+def parse_medline(
+    pmid: str,
+    record: str,
+    query_id: str,
+    retrieval_reason: RetrievalReason = "keyword"
+) -> Paper:
     """
     MEDLINE text → Paper 객체
     """
@@ -27,7 +32,7 @@ def parse_medline(pmid: str, record: str) -> Paper:
     year_raw = _extract_tag(record, "DP  -")
     abstract = _extract_tag(record, "AB  -")
 
-    year = int(year_raw[:4]) if year_raw[:4].isdigit() else 0
+    year = int(year_raw[:4]) if year_raw[:4].isdigit() else None
     sentences = split_sentences(abstract)
 
     return Paper(
@@ -42,5 +47,6 @@ def parse_medline(pmid: str, record: str) -> Paper:
             )
             for i, s in enumerate(sentences)
         ],
-        retrieval_reason="keyword"
+        retrieval_reason=retrieval_reason,
+        query_id=query_id
     )
