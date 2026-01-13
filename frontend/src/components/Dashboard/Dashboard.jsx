@@ -382,7 +382,7 @@ const Dashboard = ({ onLogout }) => {
               onChange={handleInputResize}
               onKeyDown={handleKeyDown}
               placeholder="질문을 입력하세요..."
-              disabled={!currentSessionId || isWaiting}
+              disabled={isWaiting}
               rows={1} // 기본 줄 수
             />
 
