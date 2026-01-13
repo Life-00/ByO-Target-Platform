@@ -1,0 +1,14 @@
+# .github/workflows/main.yml
+name: BYO_TVA
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  noop:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Temporary CI placeholder"
