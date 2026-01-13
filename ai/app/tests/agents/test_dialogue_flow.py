@@ -4,6 +4,7 @@ from app.schemas.user_query import UserQuery
 def test_retriever_returns_paper_corpus():
 
     agent = RetrieverAgent()
+
     uq = UserQuery(
         query_id="test",
         target="EGFR",

@@ -18,8 +18,12 @@ class ExperimentInfo(BaseModel):
 
 
 class RelationInfo(BaseModel):
-    type: str  # increase | decrease | association | no_effect | unknown
-    object: Optional[str] = None
+    stance: str # support | refute | neutral | unknown
+    effect: str # increase | decrease | no_change | mixed | unknown
+    outcome: Optional[str] = None # tumor_growth | survival | expression | activity | unknown
+    evidence_strength: str # in_vitro | in_vivo | clinical | review | unknown
+    confidence: Optional[float] = None # 0.0 ~ 1.0 (LLM 추정)
+    rationale: Optional[str] = None
 
 
 class Fact(BaseModel):
@@ -27,7 +31,6 @@ class Fact(BaseModel):
     pmid: str
     sentence_id: str
     text: str
-
     entities: EntitySet
     experiment: ExperimentInfo
     relation: RelationInfo
