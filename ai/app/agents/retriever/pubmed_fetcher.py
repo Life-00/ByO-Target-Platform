@@ -40,9 +40,9 @@ class PubMedFetcher:
 
         return pmids_by_query, pmid_provenance
 
+    @staticmethod
     def fetch_and_parse(
-        self,
-        expanded_queries: List[ExpandedQuery],
+            expanded_queries: List[ExpandedQuery],
         pmid_provenance: Dict[str, List[str]],
     ) -> List[Paper]:
         qmap = {q["query_id"]: q for q in expanded_queries}
