@@ -64,11 +64,7 @@ const Dashboard = ({ onLogout }) => {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-<<<<<<< HEAD
-  // 스크롤 자동 이동
-=======
   // 메시지가 추가되거나 입력창 높이가 변할 때 스크롤 조정
->>>>>>> refactor/chat-ui
   useEffect(() => {
     if (scrollRef.current)
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -142,9 +138,6 @@ const Dashboard = ({ onLogout }) => {
     }
   };
 
-<<<<<<< HEAD
-  // 메시지 전송 (핵심 로직)
-=======
   // 입력창 높이 자동 조절 함수
   const handleInputResize = (e) => {
     setInput(e.target.value);
@@ -161,7 +154,6 @@ const Dashboard = ({ onLogout }) => {
     }
   };
 
->>>>>>> refactor/chat-ui
   const handleSendMessage = async () => {
     if ((!input.trim() && pendingFiles.length === 0) || isWaiting) return;
 
@@ -390,13 +382,8 @@ const Dashboard = ({ onLogout }) => {
               onChange={handleInputResize}
               onKeyDown={handleKeyDown}
               placeholder="질문을 입력하세요..."
-<<<<<<< HEAD
-              // 세션이 없어도 입력 가능해야 하므로 disabled 조건 완화
-              disabled={isWaiting}
-=======
               disabled={!currentSessionId || isWaiting}
               rows={1} // 기본 줄 수
->>>>>>> refactor/chat-ui
             />
 
             <button

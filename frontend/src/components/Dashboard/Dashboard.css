@@ -284,11 +284,8 @@
 /* =========================================
    4. 입력 영역 & 드래그 오버레이
    ========================================= */
-<<<<<<< HEAD
-=======
 
 /*  오버레이 위치 기준점 설정 */
->>>>>>> refactor/chat-ui
 .input-area-wrapper {
   position: relative;
   padding: 20px 30px;
@@ -296,11 +293,7 @@
   background-color: white;
 }
 
-<<<<<<< HEAD
-/* 드래그 오버레이 */
-=======
 /*드래그 앤 드롭 오버레이 스타일 (입력창 영역에만 표시) */
->>>>>>> refactor/chat-ui
 .drag-overlay {
   position: absolute;
   top: 0;
@@ -333,9 +326,6 @@
   margin: 0;
 }
 
-<<<<<<< HEAD
-/* 파일 프리뷰 */
-=======
 @keyframes bounce {
   0%,
   100% {
@@ -349,7 +339,6 @@
 /* 5. 파일 프리뷰 & 입력창 컴포넌트 */
 
 /* 파일 아이콘 프리뷰 컨테이너 */
->>>>>>> refactor/chat-ui
 .file-preview-container {
   display: flex;
   flex-wrap: wrap;
@@ -392,19 +381,15 @@
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
-<<<<<<< HEAD
-/* 입력창 */
-=======
 .file-remove-badge:hover {
   transform: scale(1.2);
 }
 
 /* ---------------------------------------------------
-   🔥 입력창 개선 (Textarea Auto-resize 적용)
+   입력창 개선 (Textarea Auto-resize 적용)
    --------------------------------------------------- */
 
 /* 입력창 컨테이너 */
->>>>>>> refactor/chat-ui
 .input-box-container {
   display: flex;
   align-items: flex-end; /* 텍스트가 여러 줄일 때 아이콘은 바닥에 고정 */
@@ -441,8 +426,6 @@
   transform: scale(1.1);
 }
 
-<<<<<<< HEAD
-=======
 /* 첨부 버튼 & 전송 버튼 위치 보정 */
 .attach-btn-wrapper,
 .icon-send-btn {
@@ -453,21 +436,17 @@
   cursor: pointer;
 }
 
->>>>>>> refactor/chat-ui
 .icon-send-btn {
   background: none;
   border: none;
   padding: 0 0 4px 0;
 }
 
-<<<<<<< HEAD
-=======
 .icon-send-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
 
->>>>>>> refactor/chat-ui
 .animate-spin {
   animation: spin 1s linear infinite;
 }
@@ -482,34 +461,6 @@
 }
 
 /* =========================================
-<<<<<<< HEAD
-   5. 모바일 반응형 (핵심 수정)
-   ========================================= */
-@media (max-width: 768px) {
-  .sidebar {
-    position: absolute; /* 모바일: 채팅창 위로 뜸 */
-    height: 100%;
-    box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
-  }
-
-  .sidebar.closed {
-    /* 모바일에서 닫히면 완전히 사라짐 */
-    width: 0;
-    padding: 0;
-  }
-
-  /* 사이드바 열렸을 때 뒷배경 어둡게 */
-  .mobile-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.5);
-    z-index: 45; /* 사이드바(50)보다 낮게 */
-    backdrop-filter: blur(1px);
-  }
-=======
    6. Markdown 결과 스타일링 (AI 답변용 - 신규 추가)
    ========================================= */
 
@@ -711,5 +662,4 @@
   border: none;
   border-top: 1px solid #e2e8f0;
   margin: 16px 0;
->>>>>>> refactor/chat-ui
 }
