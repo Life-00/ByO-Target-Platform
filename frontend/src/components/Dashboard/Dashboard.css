@@ -408,7 +408,7 @@
 }
 
 /* =========================================
-   5. Right Sidebar Items (수정됨)
+   5. Right Sidebar Items
    ========================================= */
 .reference-list {
   flex: 1;
@@ -449,8 +449,9 @@
 }
 
 .ref-item.selected {
-  background-color: #f0fdfa;
-  border-color: var(--bio-primary);
+  background-color: #f8fafc; /* 배경은 아주 연한 회색 (깔끔함 유지) */
+  border-color: var(--bio-primary); /* ✅ 테두리를 사이드바 색상으로 변경 */
+  border-width: 1.5px; /* (선택 사항) 테두리를 살짝 두껍게 해서 강조 */
 }
 
 /* 체크박스 & 로딩 영역 */
@@ -649,4 +650,41 @@
   color: #334155;
   font-style: italic;
   border-radius: 0 8px 8px 0;
+}
+
+/* =========================================
+   7. Indexed (Analyzed) File Styles (New)
+   ========================================= */
+
+/* 1. 분석 완료된 항목: 왼쪽 테두리를 사이드바 색상으로 변경 */
+.ref-item.indexed {
+  border-left: 4px solid var(--bio-primary); /* 사이드바 색상 */
+  background-color: #f8fafc; /* 살짝 배경색 */
+}
+
+/* 2. 확장자 뱃지: 글자와 테두리를 사이드바 색상으로 */
+.ref-ext-badge.indexed-badge {
+  background-color: white;
+  color: var(--bio-primary); 
+  border: 1px solid var(--bio-primary);
+  font-weight: 800;
+}
+
+/* 3. Analyzed 라벨: 사이드바 색상 배경에 흰 글씨 */
+.status-indexed {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  
+  color: white; 
+  background-color: var(--bio-primary); /* 배경 강조 */
+  
+  padding: 2px 6px;
+  border-radius: 10px;
+  margin-left: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
 }

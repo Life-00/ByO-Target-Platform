@@ -1,5 +1,6 @@
 import time
 from typing import Optional, List, Dict
+from uuid import UUID
 
 from langchain_upstage import ChatUpstage
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
@@ -17,47 +18,45 @@ class SolarService:
         self,
         user_email: str,
         message: str,
-        session_id: Optional[str] = None,
+        session_id: Optional[UUID] = None,
         history: Optional[List[Dict[str, str]]] = None,
-        use_rag: bool = False,
+        context: Optional[str] = None,
     ) -> str:
-        """
-        - chat 모드: use_rag=False 권장
-        - report 모드: use_rag=True 권장
-        """
+        
         msg_count = len(history) if history else 0
-        print(f"[{time.strftime('%H:%M:%S')}] [SOLAR] Invoke (history={msg_count}, rag={use_rag})")
+        print(f"[{time.strftime('%H:%M:%S')}] [SOLAR] Invoke (session={session_id}, history={msg_count}, context_len={len(context) if context else 0})")
         start_time = time.time()
 
-        # 1) RAG 컨텍스트(옵션)
-        context = ""
-        if use_rag and session_id:
-            try:
-                context = rag_service.get_relevant_context(message, session_id, user_email)
-            except Exception as e:
-                print(f"[{time.strftime('%H:%M:%S')}] [SOLAR] RAG warn: {str(e)}")
-
-        # 2) system prompt
-        system_instruction = (
-            "너는 전문적인 바이오 타겟 검증 어시스턴트이다. 연구원의 질문에 대해 과학적 근거를 바탕으로 친절하게 답변하라."
+        # 1) 시스템 프롬프트 구성 (TV-A 페르소나)
+        base_system_prompt = (
+            "당신은 'TV-A(Target Validation Assistant)'입니다. "
+            "사용자의 바이오/제약 연구를 돕는 AI 에이전트입니다. "
+            "주어진 [Context]를 바탕으로 질문에 대해 구체적이고 전문적인 답변을 제공하세요. "
+            "스스로를 ChatGPT나 다른 모델이라고 소개하지 마세요."
         )
+
+        # 2) Context 주입 및 ✅ [파일명 인용 지시 추가]
         if context:
-            system_instruction += (
-                f"\n\n[참고 문서 내용]\n{context}\n\n"
-                "위의 [참고 문서 내용]에 사용자의 질문과 관련된 정보가 있다면 이를 우선적으로 활용하여 답변하라."
+            base_system_prompt += (
+                f"\n\n[Context]\n{context}\n\n"
+                "위의 [Context] 내용을 분석하여 답변의 근거로 사용하세요. "
+                "📢 중요: 답변할 때 반드시 해당 정보가 포함된 '파일명'을 언급하여 출처를 명확히 하세요. "
+                "(예: 'OOO.pdf 파일에 따르면, ...')"
             )
 
-        messages = [SystemMessage(content=system_instruction)]
+        messages = [SystemMessage(content=base_system_prompt)]
 
-        # 3) history 추가
+        # 3) 대화 내역(History) 추가
         if history:
             for msg in history:
-                if msg.get("role") == "user":
-                    messages.append(HumanMessage(content=msg.get("content", "")))
-                elif msg.get("role") in ("ai", "assistant"):
-                    messages.append(AIMessage(content=msg.get("content", "")))
-
-        # ✅ 4) 현재 user message는 항상 마지막에 추가 (기존 버그 수정)
+                role = msg.get("role")
+                content = msg.get("content", "")
+                if role == "user":
+                    messages.append(HumanMessage(content=content))
+                elif role in ("ai", "assistant"):
+                    messages.append(AIMessage(content=content))
+        
+        # 4) 현재 사용자 질문 추가
         messages.append(HumanMessage(content=message))
 
         try:

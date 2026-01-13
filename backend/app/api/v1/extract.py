@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from uuid import UUID
 
 from app.core.database import get_db
 from app.api.deps import get_current_user_email
@@ -14,7 +15,7 @@ router = APIRouter(prefix="/sessions", tags=["extract"])
 
 @router.post("/{session_id}/extract", response_model=ExtractResponse)
 async def run_extract(
-    session_id: str,
+    session_id: UUID,  # ✅ UUID 타입 적용
     force: bool = False,
     email: str = Depends(get_current_user_email),
     db: Session = Depends(get_db),
@@ -22,7 +23,7 @@ async def run_extract(
     """
     - selections에 있는 항목들 중 uploaded_file만 인덱싱
     - 이미 VectorIndexRecord가 success인 파일은 재인덱싱하지 않음
-    - force=true면 success여도 재인덱싱 시도 (필요할 때만)
+    - force=true면 success여도 재인덱싱 시도
     """
 
     # 1) 선택 목록 로드
@@ -40,10 +41,9 @@ async def run_extract(
     # 2) uploaded_file만 처리
     for s in selections:
         if s.item_type != "uploaded_file":
-            # staged_paper는 추후 pdf_storage_path 생기면 처리
             continue
 
-        # Selection.item_id는 UUID 문자열로 들어올 수 있으니 그대로 비교
+        # Selection.item_id는 DB에서 UUID 타입임
         uf = (
             db.query(UploadedFile)
             .filter(
@@ -58,14 +58,14 @@ async def run_extract(
             results.append(
                 {
                     "item_type": "uploaded_file",
-                    "item_id": str(s.item_id),
+                    "item_id": s.item_id, # UUID 객체
                     "status": "missing",
                     "error": "선택된 파일을 DB에서 찾을 수 없습니다.",
                 }
             )
             continue
 
-        # 3) 중복 인덱싱 방지: 이미 success면 skip (force면 예외)
+        # 3) 중복 인덱싱 방지
         existing_success = (
             db.query(VectorIndexRecord)
             .filter(
@@ -82,7 +82,7 @@ async def run_extract(
             results.append(
                 {
                     "item_type": "uploaded_file",
-                    "item_id": str(uf.id),
+                    "item_id": uf.id,
                     "status": "skipped",
                 }
             )
@@ -94,7 +94,6 @@ async def run_extract(
             user_email=email,
             item_type="uploaded_file",
             item_id=uf.id,
-            # 컬렉션 전략: 세션별 컬렉션으로 쓰고 싶으면 session_{session_id} 추천
             chroma_collection=f"session_{session_id}",
             embedding_model=None,
             status="running",
@@ -104,14 +103,15 @@ async def run_extract(
         db.commit()
         db.refresh(idx)
 
-        # 5) 실제 인덱싱 수행 (rag_service가 file_id를 ids에 포함해 충돌 방지)
+        # 5) 실제 인덱싱 수행
         try:
+            # ✅ 서비스 호출 시에는 str()로 명시적 변환
             ret = await rag_service.process_and_store(
                 file_path=uf.storage_path,
                 session_id=str(session_id),
                 email=email,
                 file_id=str(uf.id),
-                collection_name=f"session_{session_id}",  # rag_service가 지원하면 세션별 컬렉션
+                collection_name=f"session_{session_id}",
                 upsert=force,
             )
 
@@ -123,7 +123,7 @@ async def run_extract(
                 results.append(
                     {
                         "item_type": "uploaded_file",
-                        "item_id": str(uf.id),
+                        "item_id": uf.id,
                         "status": "fail",
                         "error": ret.get("error", "unknown"),
                     }
@@ -136,12 +136,16 @@ async def run_extract(
                 "skipped_all": ret.get("skipped_all", False),
                 "force": force,
             }
+            
+            uf.status = "indexed" 
+            db.add(uf)
+            
             db.commit()
 
             results.append(
                 {
                     "item_type": "uploaded_file",
-                    "item_id": str(uf.id),
+                    "item_id": uf.id,
                     "status": "success" if not ret.get("skipped_all") else "success_noop",
                 }
             )
@@ -154,7 +158,7 @@ async def run_extract(
             results.append(
                 {
                     "item_type": "uploaded_file",
-                    "item_id": str(uf.id),
+                    "item_id": uf.id,
                     "status": "fail",
                     "error": str(e),
                 }

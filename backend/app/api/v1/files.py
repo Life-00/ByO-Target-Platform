@@ -2,6 +2,7 @@ import os
 import uuid
 import shutil
 from typing import List, Optional
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse
@@ -16,11 +17,11 @@ from app.schemas.files import FileUploadResponse, UploadedFileResponse
 
 router = APIRouter(prefix="/sessions", tags=["files"])
 
-# 업로드 저장 디렉토리 (컨테이너/로컬 공통)
+# 업로드 저장 디렉토리
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-# 허용 확장자(필요하면 늘려)
+# 허용 확장자
 ALLOWED_EXTS = {
     ".pdf", ".txt", ".md",
     ".docx", ".pptx",
@@ -45,7 +46,7 @@ def _build_storage_path(session_id: str, file_id: uuid.UUID, original_name: str)
 
 @router.post("/{session_id}/files", response_model=List[FileUploadResponse])
 async def upload_files(
-    session_id: str,
+    session_id: UUID,  # ✅ UUID 타입 적용
     files: Optional[List[UploadFile]] = File(None),
     email: str = Depends(get_current_user_email),
     db: Session = Depends(get_db),
@@ -61,16 +62,17 @@ async def upload_files(
 
     for f in files:
         if not f.filename:
-            results.append({"file_id": "", "original_name": "", "status": "failed"})
+            results.append({"file_id": uuid.uuid4(), "original_name": "", "status": "failed"})
             continue
 
         ext = _safe_ext(f.filename)
         if ext and ALLOWED_EXTS and ext not in ALLOWED_EXTS:
-            results.append({"file_id": "", "original_name": f.filename, "status": "rejected"})
+            results.append({"file_id": uuid.uuid4(), "original_name": f.filename, "status": "rejected"})
             continue
 
         file_id = uuid.uuid4()
-        save_path = _build_storage_path(session_id, file_id, f.filename)
+        # ✅ session_id는 UUID 객체이므로 str()로 변환하여 경로 생성
+        save_path = _build_storage_path(str(session_id), file_id, f.filename)
 
         # 파일 크기 체크(스트리밍 방식)
         total = 0
@@ -92,7 +94,7 @@ async def upload_files(
             except Exception:
                 pass
 
-            results.append({"file_id": "", "original_name": f.filename, "status": "failed"})
+            results.append({"file_id": file_id, "original_name": f.filename, "status": "failed"})
             continue
         finally:
             try:
@@ -102,7 +104,7 @@ async def upload_files(
 
         rec = UploadedFile(
             id=file_id,
-            session_id=session_id,
+            session_id=session_id, # SQLAlchemy가 UUID 객체 처리
             user_email=email,
             original_name=f.filename,
             storage_path=save_path,
@@ -113,14 +115,14 @@ async def upload_files(
         db.add(rec)
         db.commit()
 
-        results.append({"file_id": str(file_id), "original_name": f.filename, "status": "uploaded"})
+        results.append({"file_id": file_id, "original_name": f.filename, "status": "uploaded"})
 
     return results
 
 
 @router.get("/{session_id}/files", response_model=List[UploadedFileResponse])
 async def list_files(
-    session_id: str,
+    session_id: UUID,  # ✅ UUID 타입 적용
     email: str = Depends(get_current_user_email),
     db: Session = Depends(get_db),
 ):
@@ -135,8 +137,8 @@ async def list_files(
 
 @router.delete("/{session_id}/files/{file_id}")
 async def delete_file(
-    session_id: str,
-    file_id: str,
+    session_id: UUID,  # ✅ UUID 타입 적용
+    file_id: UUID,     # ✅ UUID 타입 적용
     email: str = Depends(get_current_user_email),
     db: Session = Depends(get_db),
 ):
@@ -157,8 +159,6 @@ async def delete_file(
         if row.storage_path and os.path.exists(row.storage_path):
             os.remove(row.storage_path)
     except Exception as e:
-        # 파일 삭제 실패는 DB 삭제를 막을지 정책 필요
-        # MVP에서는 DB는 삭제하고 경고만 남김
         pass
 
     db.delete(row)
@@ -169,8 +169,8 @@ async def delete_file(
 
 @router.get("/{session_id}/files/{file_id}/download")
 async def download_file(
-    session_id: str,
-    file_id: str,
+    session_id: UUID,  # ✅ UUID 타입 적용
+    file_id: UUID,     # ✅ UUID 타입 적용
     email: str = Depends(get_current_user_email),
     db: Session = Depends(get_db),
 ):
@@ -189,7 +189,6 @@ async def download_file(
     if not row.storage_path or not os.path.exists(row.storage_path):
         raise HTTPException(status_code=404, detail="서버에 파일이 존재하지 않습니다.")
 
-    # 원본 파일명으로 다운로드
     return FileResponse(
         path=row.storage_path,
         filename=row.original_name,

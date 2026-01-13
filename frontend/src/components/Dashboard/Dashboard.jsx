@@ -20,8 +20,9 @@ import {
   CheckSquare,
   Layers,
   FileUp,
+  CheckCircle2, // ✅ 추가됨: 분석 완료 아이콘
 } from "lucide-react";
-import api from "../../api";
+import api from "../../api"; // baseURL: http://localhost:8000/api/v1
 import "./Dashboard.css";
 
 const AGENTS = [
@@ -39,7 +40,7 @@ const Dashboard = ({ onLogout }) => {
   const [input, setInput] = useState("");
   const [isWaiting, setIsWaiting] = useState(false);
 
-  // References: { id, title, type(ext), checked, isLocal, isLoading, file }
+  // References: { id, title, type, checked, isLocal, isLoading, file, status, itemType }
   const [references, setReferences] = useState([]);
 
   const [activeAgent, setActiveAgent] = useState("general");
@@ -52,13 +53,13 @@ const Dashboard = ({ onLogout }) => {
   const fileInputRef = useRef(null);
   const isInitializing = useRef(false);
 
-  // --- 초기화 로직 ---
+  // --- 초기화 로직: 세션 목록 로드 ---
   useEffect(() => {
     const init = async () => {
       if (isInitializing.current) return;
       isInitializing.current = true;
       try {
-        const res = await api.get("/chat/sessions");
+        const res = await api.get("/sessions");
         setSessions(res.data);
       } catch (err) {
         console.error("세션 목록 로드 실패", err);
@@ -85,15 +86,69 @@ const Dashboard = ({ onLogout }) => {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages, isWaiting, input]);
 
+  // --- 헬퍼 함수: References 병합 로직 ---
+  const fetchAndMergeReferences = async (sessionId) => {
+    try {
+      const [filesRes, candidatesRes, selectionsRes] = await Promise.all([
+        api.get(`/sessions/${sessionId}/files`),
+        api.get(`/sessions/${sessionId}/research/candidates`),
+        api.get(`/sessions/${sessionId}/selections`),
+      ]);
+
+      const uploadedFiles = filesRes.data || [];
+      const stagedPapers = candidatesRes.data || [];
+      const selections = selectionsRes.data || [];
+
+      const selectedIds = new Set(selections.map((s) => s.item_id));
+
+      const mappedFiles = uploadedFiles.map((f) => {
+        const ext = (
+          f.original_name.split(".").pop() ||
+          f.mime_type ||
+          "FILE"
+        ).toUpperCase();
+        return {
+          id: f.id,
+          title: f.original_name,
+          type: ext,
+          status: f.status, // ✅ 분석 상태(indexed 등) 연동
+          checked: selectedIds.has(f.id),
+          isLocal: false,
+          isLoading: false,
+          itemType: "file",
+        };
+      });
+
+      const mappedPapers = stagedPapers.map((p) => {
+        return {
+          id: p.id,
+          title: p.title,
+          type: "PDF",
+          status: "staged", // 논문은 기본 상태
+          checked: selectedIds.has(p.id),
+          isLocal: false,
+          isLoading: false,
+          source: p.source,
+          itemType: "paper",
+        };
+      });
+
+      setReferences([...mappedFiles, ...mappedPapers]);
+    } catch (err) {
+      console.error("References 로드 실패", err);
+    }
+  };
+
   // --- 핸들러 ---
 
   const handleSelectSession = async (id) => {
     setCurrentSessionId(id);
+    setReferences([]);
     try {
-      const msgRes = await api.get(`/chat/sessions/${id}/messages`);
+      const msgRes = await api.get(`/sessions/${id}/messages`);
       setMessages(msgRes.data);
-      // TODO: 서버에서 저장된 Reference 불러오는 API 연동 필요
-      setReferences([]);
+      await fetchAndMergeReferences(id);
+
       if (window.innerWidth <= 768) setIsSidebarOpen(false);
     } catch (err) {
       console.error(err);
@@ -114,7 +169,7 @@ const Dashboard = ({ onLogout }) => {
     e.stopPropagation();
     if (!window.confirm("이 대화를 삭제하시겠습니까?")) return;
     try {
-      await api.delete(`/chat/sessions/${id}`);
+      await api.delete(`/sessions/${id}`);
       setSessions((prev) => prev.filter((s) => s.id !== id));
       if (currentSessionId === id) handleResetChat();
     } catch (err) {
@@ -122,11 +177,8 @@ const Dashboard = ({ onLogout }) => {
     }
   };
 
-  // [수정됨] 파일 선택 핸들러 (확장자 추출 + 로딩 시뮬레이션)
   const handleFileSelection = (files) => {
-    const newFiles = Array.from(files);
-
-    // 중복 체크
+    const newFiles = Array.from(files || []);
     const uniqueFiles = newFiles.filter((file) => {
       return !references.some((ref) => ref.title === file.name);
     });
@@ -136,24 +188,24 @@ const Dashboard = ({ onLogout }) => {
       return;
     }
 
-    // 1. 초기 상태: 로딩 중 (isLoading: true)
     const newRefs = uniqueFiles.map((file, index) => {
-      const ext = file.name.split(".").pop().toUpperCase() || "FILE";
+      const ext = file.name.split(".").pop()?.toUpperCase() || "FILE";
       return {
         id: `local-${Date.now()}-${index}`,
         title: file.name,
-        type: ext, // 확장자
+        type: ext,
+        status: "uploading",
         checked: true,
         isLocal: true,
-        isLoading: true, // 로딩 상태 시작
+        isLoading: true,
         file: file,
+        itemType: "file",
       };
     });
 
     setReferences((prev) => [...prev, ...newRefs]);
     if (!isRefPanelOpen) setIsRefPanelOpen(true);
 
-    // 2. 로딩 완료 시뮬레이션 (0.8초 후 스피너 -> 체크박스)
     setTimeout(() => {
       setReferences((prev) =>
         prev.map((ref) => (ref.isLoading ? { ...ref, isLoading: false } : ref))
@@ -161,19 +213,59 @@ const Dashboard = ({ onLogout }) => {
     }, 800);
   };
 
-  const removeReference = (id) => {
-    setReferences((prev) => prev.filter((ref) => ref.id !== id));
+  const removeReference = async (id, isLocal) => {
+    if (isLocal) {
+      setReferences((prev) => prev.filter((ref) => ref.id !== id));
+    } else {
+      if (!currentSessionId) return;
+      if (!window.confirm("서버에서 파일을 삭제하시겠습니까?")) return;
+      try {
+        const targetRef = references.find((r) => r.id === id);
+        if (targetRef && targetRef.itemType === "file") {
+          await api.delete(`/sessions/${currentSessionId}/files/${id}`);
+        }
+        setReferences((prev) => prev.filter((ref) => ref.id !== id));
+      } catch (err) {
+        console.error("파일 삭제 실패", err);
+        alert("삭제 중 오류가 발생했습니다.");
+      }
+    }
   };
 
-  const toggleReference = (id) => {
+  const toggleReference = async (id) => {
+    const target = references.find((r) => r.id === id);
+    if (!target) return;
+
+    // UI 선반영
     setReferences((prev) =>
       prev.map((ref) =>
         ref.id === id ? { ...ref, checked: !ref.checked } : ref
       )
     );
+
+    if (target.isLocal) return;
+
+    if (currentSessionId) {
+      try {
+        const apiItemType =
+          target.itemType === "file" ? "uploaded_file" : "staged_paper";
+
+        await api.post(`/sessions/${currentSessionId}/selections/toggle`, {
+          item_type: apiItemType,
+          item_id: id,
+        });
+      } catch (err) {
+        console.error("Selection toggle failed", err);
+        // 실패 시 롤백
+        setReferences((prev) =>
+          prev.map((ref) =>
+            ref.id === id ? { ...ref, checked: !ref.checked } : ref
+          )
+        );
+      }
+    }
   };
 
-  // 드래그 앤 드롭
   const handleDrag = (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -198,13 +290,13 @@ const Dashboard = ({ onLogout }) => {
     }
   };
 
-  // 메시지 전송
+  // --- 메시지 전송 및 에이전트 실행 ---
   const handleSendMessage = async () => {
     const localFilesToSend = references.filter((r) => r.isLocal && r.checked);
-
     if ((!input.trim() && localFilesToSend.length === 0) || isWaiting) return;
 
     const userContent = input.trim();
+    
     setMessages((prev) => [
       ...prev,
       { role: "user", content: userContent || "파일 분석 요청" },
@@ -216,69 +308,120 @@ const Dashboard = ({ onLogout }) => {
     try {
       let targetId = currentSessionId;
 
+      // 1. 세션 생성
       if (!targetId) {
-        const createRes = await api.post("/chat/sessions");
+        const createRes = await api.post("/sessions", {
+          title:
+            userContent.substring(0, 15) +
+            (userContent.length > 15 ? "..." : "") || "New Session",
+        });
         targetId = createRes.data.id;
-        const newTitle = userContent
-          ? userContent.substring(0, 15) +
-            (userContent.length > 15 ? "..." : "")
-          : "새로운 대화";
-        await api.patch(`/chat/sessions/${targetId}`, { title: newTitle });
-        setSessions((prev) => [
-          { ...createRes.data, title: newTitle },
-          ...prev,
-        ]);
+        setSessions((prev) => [createRes.data, ...prev]);
         setCurrentSessionId(targetId);
       }
 
-      const formData = new FormData();
-      formData.append("message", userContent || "파일을 분석해줘.");
-      formData.append("agent_mode", activeAgent);
+      let uploadedItems = []; 
 
-      // 이미 서버에 있는 파일 ID
-      const serverRefIds = references
-        .filter((r) => !r.isLocal && r.checked)
-        .map((r) => r.id);
-      formData.append("context_ids", JSON.stringify(serverRefIds));
+      // 2. 로컬 파일 업로드
+      if (localFilesToSend.length > 0) {
+        const fd = new FormData();
+        localFilesToSend.forEach((ref) => fd.append("files", ref.file));
 
-      // 새로 업로드할 파일
-      localFilesToSend.forEach((ref) => {
-        formData.append("files", ref.file);
-      });
+        const uploadRes = await api.post(
+          `/sessions/${targetId}/files`,
+          fd,
+          { headers: { "Content-Type": "multipart/form-data" } }
+        );
 
-      const res = await api.post(`/chat/sessions/${targetId}/chat`, formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+        uploadedItems = uploadRes.data || [];
+        
+        // 업로드된 파일 Selection 동기화
+        for (const file of uploadedItems) {
+          const correctId = file.file_id || file.id; 
+          await api.post(`/sessions/${targetId}/selections/toggle`, {
+            item_type: "uploaded_file",
+            item_id: correctId,
+          });
+        }
+      }
 
-      setMessages((prev) => [...prev, { role: "ai", content: res.data.reply }]);
-
-      // 업로드 성공 처리 (로컬 -> 서버 파일로 전환 가정)
-      if (res.data.uploaded_files) {
+      // 업로드 성공 후 UI 갱신 (로컬->서버)
+      if (uploadedItems.length > 0) {
         setReferences((prev) => {
           const existingServerFiles = prev.filter((r) => !r.isLocal);
-          // 편의상 로컬 파일을 서버 파일로 간주하여 플래그 변경
-          const newlyUploaded = localFilesToSend.map((localFile) => ({
-            ...localFile,
-            isLocal: false,
-          }));
+          const newlyUploaded = uploadedItems.map((f) => {
+            const title = f.original_name || f.filename || "FILE";
+            const ext = (title.split(".").pop() || "FILE").toUpperCase();
+            return {
+              id: f.file_id || f.id, 
+              title,
+              type: ext,
+              status: f.status || "uploaded",
+              checked: true,
+              isLocal: false,
+              isLoading: false,
+              itemType: "file",
+            };
+          });
           const remainingLocal = prev.filter((r) => r.isLocal && !r.checked);
           return [...existingServerFiles, ...newlyUploaded, ...remainingLocal];
         });
       }
 
-      // 검색 결과 추가
-      if (res.data.found_documents) {
-        const newDocs = res.data.found_documents.map((doc) => ({
-          ...doc,
-          checked: false,
-          isLocal: false,
-        }));
-        setReferences((prev) => [...prev, ...newDocs]);
-        if (!isRefPanelOpen) setIsRefPanelOpen(true);
+      // 3. 에이전트별 요청
+      let resData = null;
+      let replyText = "";
+
+      // 컨텍스트 ID 수집
+      const uploadedIds = uploadedItems.map(f => f.file_id || f.id);
+      const serverRefIds = references
+        .filter((r) => !r.isLocal && r.checked)
+        .map((r) => r.id);
+      const contextIds = [...serverRefIds, ...uploadedIds];
+
+      if (activeAgent === "general") {
+        const res = await api.post(`/sessions/${targetId}/chat`, {
+          message: userContent || "파일을 분석해줘.",
+          context_ids: contextIds
+        });
+        resData = res.data;
+        replyText = resData.reply || "답변이 도착했습니다."; 
+      } else if (activeAgent === "retrieval") {
+        const res = await api.post(`/sessions/${targetId}/research`, {
+          query: userContent || "관련 논문 검색",
+          top_k: 5,
+        });
+        resData = res.data; 
+        replyText = `검색 완료: ${resData?.length || 0}건의 논문을 찾았습니다.`;
+      } else if (activeAgent === "extractor") {
+        const res = await api.post(
+          `/sessions/${targetId}/extract?force=false`,
+          {}
+        );
+        resData = res.data; 
+        replyText = "선택된 파일에 대한 정보 추출 작업을 완료했습니다.";
+      } else if (activeAgent === "synthesizer") {
+        const res = await api.post(`/sessions/${targetId}/report`, {
+          prompt: userContent || "보고서 작성해줘",
+        });
+        resData = res.data; 
+        replyText = resData.content;
       }
+
+      // 4. 상태 갱신
+      const [msgRes] = await Promise.all([
+        api.get(`/sessions/${targetId}/messages`),
+        fetchAndMergeReferences(targetId)
+      ]);
+      
+      setMessages(msgRes.data);
+
     } catch (err) {
       console.error(err);
-      alert("전송 중 오류가 발생했습니다.");
+      setMessages((prev) => [
+        ...prev,
+        { role: "ai", content: "오류가 발생했습니다. 다시 시도해주세요." },
+      ]);
     } finally {
       setIsWaiting(false);
     }
@@ -296,7 +439,7 @@ const Dashboard = ({ onLogout }) => {
         />
       )}
 
-      {/* 1. Left Sidebar (History) */}
+      {/* Left Sidebar */}
       <aside className={`sidebar ${!isSidebarOpen ? "closed" : ""}`}>
         <div className="sidebar-header">
           <div className="sidebar-title">
@@ -342,7 +485,7 @@ const Dashboard = ({ onLogout }) => {
         </button>
       </aside>
 
-      {/* 2. Main Chat Area */}
+      {/* Main Chat Area */}
       <main className="chat-main">
         {!isSidebarOpen && (
           <button
@@ -376,12 +519,11 @@ const Dashboard = ({ onLogout }) => {
           {messages.map((m, i) => (
             <div key={i} className={`msg-bubble ${m.role}`}>
               {m.role === "ai" ? (
-                <ReactMarkdown
-                  className="markdown-body"
-                  remarkPlugins={[remarkGfm]}
-                >
-                  {m.content}
-                </ReactMarkdown>
+                <div className="markdown-body">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {m.content}
+                  </ReactMarkdown>
+                </div>
               ) : (
                 m.content
               )}
@@ -453,7 +595,7 @@ const Dashboard = ({ onLogout }) => {
         </div>
       </main>
 
-      {/* 3. Right Sidebar (Reference & Upload) */}
+      {/* Right Sidebar */}
       <aside
         className={`right-sidebar ${!isRefPanelOpen ? "closed" : ""} ${
           dragActive ? "drag-active" : ""
@@ -510,51 +652,59 @@ const Dashboard = ({ onLogout }) => {
               </p>
             </div>
           ) : (
-            references.map((ref) => (
-              <div
-                key={ref.id}
-                className={`ref-item ${ref.checked ? "selected" : ""}`}
-                onClick={() => !ref.isLoading && toggleReference(ref.id)}
-              >
-                {/* 로딩 중이면 스피너, 아니면 체크박스 */}
-                <div className="ref-checkbox-area">
-                  {ref.isLoading ? (
-                    <Loader2
-                      className="animate-spin"
-                      size={14}
-                      color="#94a3b8"
-                    />
-                  ) : (
-                    <input
-                      type="checkbox"
-                      className="custom-checkbox"
-                      checked={ref.checked}
-                      readOnly
-                    />
-                  )}
-                </div>
+            references.map((ref) => {
+              // ✅ 분석 완료 상태 체크 (백엔드가 'indexed'로 보내줌)
+              const isIndexed = ref.status === "indexed";
 
-                <div className="ref-info">
-                  <div className="ref-meta">
-                    {/* 확장자 배지 */}
-                    <span className="ref-ext-badge">{ref.type}</span>
-                  </div>
-                  <p className="ref-title" title={ref.title}>
-                    {ref.title}
-                  </p>
-                </div>
-
-                <button
-                  className="ref-delete-btn"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    removeReference(ref.id);
-                  }}
+              return (
+                <div
+                  key={ref.id}
+                  className={`ref-item ${ref.checked ? "selected" : ""} ${isIndexed ? "indexed" : ""}`}
+                  onClick={() => !ref.isLoading && toggleReference(ref.id)}
                 >
-                  <X size={12} />
-                </button>
-              </div>
-            ))
+                  <div className="ref-checkbox-area">
+                    {ref.isLoading ? (
+                      <Loader2 className="animate-spin" size={14} color="#94a3b8" />
+                    ) : (
+                      <input
+                        type="checkbox"
+                        className="custom-checkbox"
+                        checked={ref.checked}
+                        readOnly
+                      />
+                    )}
+                  </div>
+
+                  <div className="ref-info">
+                    <div className="ref-meta">
+                      {/* 뱃지 스타일 (indexed일 때 다름) */}
+                      <span className={`ref-ext-badge ${isIndexed ? "indexed-badge" : ""}`}>
+                        {ref.type}
+                      </span>
+                      {/* ✅ 분석 완료 라벨 */}
+                      {isIndexed && (
+                        <span className="status-indexed">
+                          <CheckCircle2 size={10} /> Analyzed
+                        </span>
+                      )}
+                    </div>
+                    <p className="ref-title" title={ref.title}>
+                      {ref.title}
+                    </p>
+                  </div>
+
+                  <button
+                    className="ref-delete-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeReference(ref.id, ref.isLocal);
+                    }}
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              );
+            })
           )}
         </div>
 

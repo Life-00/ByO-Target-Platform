@@ -4,9 +4,9 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.models.user import User  # ✅ SQLAlchemy 엔티티
-from app.schemas.users import UserCreate, UserResponse  # ✅ Pydantic
-from app.schemas.auth import Token  # ✅ Pydantic
+from app.models.user import User  
+from app.schemas.users import UserCreate, UserResponse  
+from app.schemas.auth import Token  
 from app.service.auth_service import auth_service
 from app.api.deps import oauth2_scheme
 

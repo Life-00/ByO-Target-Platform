@@ -1,6 +1,7 @@
 import os
 import time
 import chromadb
+from uuid import UUID
 
 from langchain_upstage import UpstageDocumentParseLoader, UpstageEmbeddings
 from langchain_chroma import Chroma
@@ -8,6 +9,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores.utils import filter_complex_metadata
 
 from app.core.config import settings
+from typing import List, Optional
 
 
 class RAGService:
@@ -21,10 +23,8 @@ class RAGService:
 
         print(f"[{time.strftime('%H:%M:%S')}] [RAG] Connect {settings.CHROMA_HOST}:{settings.CHROMA_PORT}")
         self.client = chromadb.HttpClient(host=settings.CHROMA_HOST, port=settings.CHROMA_PORT)
-
-        # 기본은 기존과 동일. 세션별 컬렉션으로 바꾸고 싶으면 get_vector_db()에서 처리
+        
         self.default_collection_name = "byo_target_docs"
-
         self.text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
         print(f"[{time.strftime('%H:%M:%S')}] [RAG] Ready")
 
@@ -38,15 +38,14 @@ class RAGService:
     async def process_and_store(
         self,
         file_path: str,
-        session_id: str,
+        session_id: UUID,
         email: str,
-        file_id: str,
+        file_id: UUID,
         collection_name: str | None = None,
         upsert: bool = False,
     ) -> dict:
         """
-        file_id 기반으로 고유 ids를 생성해서 충돌을 막는다.
-        upsert=False이면 이미 존재하는 ids는 건너뛰는 방향(벡터DB 특성상 add가 에러/무시될 수 있음).
+        파일을 벡터화하여 ChromaDB에 저장
         """
         vector_db = self.get_vector_db(collection_name)
 
@@ -55,7 +54,6 @@ class RAGService:
             raw_docs = loader.load()
             split_docs = self.text_splitter.split_documents(raw_docs)
 
-            # ✅ 고유 ID: session + file_id + chunk_index
             ids = [f"{session_id}_{file_id}_{i}" for i in range(len(split_docs))]
 
             for doc in split_docs:
@@ -67,10 +65,8 @@ class RAGService:
             final_docs = filter_complex_metadata(split_docs)
 
             if not upsert:
-                # 이미 존재하는 id는 제외하고 add (충돌/중복 방지)
-                # Chroma get으로 존재여부 확인 (ids 리스트로 조회)
                 try:
-                    existing = vector_db._collection.get(ids=ids)  # 내부 API지만 실용적
+                    existing = vector_db._collection.get(ids=ids)
                     existing_ids = set(existing.get("ids", []) or [])
                 except Exception:
                     existing_ids = set()
@@ -89,37 +85,88 @@ class RAGService:
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
-    def get_relevant_context(self, query: str, session_id: str, email: str, collection_name: str | None = None) -> str:
+    # ✅ async 필수 적용 완료
+    async def get_relevant_context(
+        self, 
+        query: str, 
+        session_id: UUID, 
+        email: str, 
+        file_ids: Optional[List[UUID]] = None,
+        collection_name: str | None = None
+    ) -> str:
         """
-        유사도 검색 시 텍스트 + 파일명 + 페이지를 묶어 반환
+        RAG 검색 수행. file_ids가 있으면 해당 파일 내에서만 검색.
         """
-        print(f"[{time.strftime('%H:%M:%S')}] [RAG] Retrieve (session={session_id})")
+        print(f"[{time.strftime('%H:%M:%S')}] [RAG] Retrieve (session={session_id}, files={len(file_ids) if file_ids else 'ALL'})")
 
         vector_db = self.get_vector_db(collection_name)
 
         try:
-            search_kwargs = {
-                "filter": {"$and": [{"user_email": email}, {"session_id": str(session_id)}]},
-                "k": 4,
-            }
+            # 1. 기본 필터
+            filter_conditions = [
+                {"user_email": email},
+                {"session_id": str(session_id)}
+            ]
 
-            docs = vector_db.similarity_search(query, **search_kwargs)
+            # 2. 파일 선택 필터
+            if file_ids:
+                filter_conditions.append({"file_id": {"$in": [str(fid) for fid in file_ids]}})
+
+            # 요약 모드 키워드
+            generic_keywords = ["요약", "정리", "읽어", "뭐야", "분석", "summary", "explain", "analyze", "read"]
+            is_generic_query = any(k in query.lower() for k in generic_keywords)
+
+            docs = []
+            
+            # 3-A. 요약 모드 (파일 앞부분 조회)
+            if is_generic_query and file_ids:
+                print(f"[{time.strftime('%H:%M:%S')}] [RAG] Generic query detected -> Fetching first chunks")
+                target_ids = []
+                for fid in file_ids:
+                    target_ids.append(f"{session_id}_{fid}_0")
+                    target_ids.append(f"{session_id}_{fid}_1")
+                
+                results = vector_db._collection.get(ids=target_ids)
+                
+                if results and results['documents']:
+                    for i, content in enumerate(results['documents']):
+                        meta = results['metadatas'][i] if results['metadatas'] else {}
+                        from langchain_core.documents import Document
+                        docs.append(Document(page_content=content, metadata=meta))
+            
+            # 3-B. 일반 검색 (Similarity Search)
             if not docs:
-                return "관련된 문서 내용을 찾을 수 없습니다."
+                search_kwargs = {
+                    "filter": {"$and": filter_conditions},
+                    "k": 4, 
+                }
+                docs = vector_db.similarity_search(query, **search_kwargs)
+            
+            # ✅ [수정] 검색 결과 없음 + 파일 선택됨 = Extractor 미실행 가능성 높음
+            if not docs:
+                if file_ids:
+                    return (
+                        "선택하신 파일에서 내용을 찾을 수 없습니다. "
+                        "해당 파일이 'Extractor' 에이전트를 통해 분석(Indexing)되었는지 확인해 주세요. "
+                        "아직 분석되지 않았다면 Extractor 탭에서 실행 버튼을 눌러주세요."
+                    )
+                else:
+                    return "관련된 문서 내용을 찾을 수 없습니다."
 
             parts = []
             for i, doc in enumerate(docs):
                 source_file = doc.metadata.get("source", "알 수 없는 파일")
                 page_num = doc.metadata.get("page", "-")
                 parts.append(
-                    f"[근거 {i+1}]\n"
-                    f"출처: {source_file} ({page_num}페이지)\n"
-                    f"내용: {doc.page_content}\n"
+                    f"[참고 문헌 {i+1}]\n"
+                    f"파일명: {source_file}\n"
+                    f"내용: {doc.page_content[:1000]}...\n"
                 )
             return "\n".join(parts)
 
         except Exception as e:
-            return f"문서 검색 중 오류가 발생했습니다: {str(e)}"
+            print(f"[RAG Error] {str(e)}")
+            return ""
 
 
 rag_service = RAGService()

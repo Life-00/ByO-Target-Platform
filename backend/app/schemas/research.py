@@ -1,14 +1,15 @@
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
+from uuid import UUID  
 
 class ResearchRequest(BaseModel):
     query: str
     top_k: int = 10
 
 class StagedPaperResponse(BaseModel):
-    id: str
-    session_id: str
+    id: UUID           
+    session_id: UUID   
     user_email: str
     source: str
     title: str
