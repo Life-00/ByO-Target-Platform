@@ -46,9 +46,9 @@ class DialogueAgent:
             "route",
             self.route_after_parse,
             {
-                "end_turn": END,              # 일상 대화, 질문, 경고 등 즉시 종료
-                "run_pipeline": "run_pipeline", 
-                "handle_decision": "handle_decision", 
+                "end_turn": END,                # 대화 종료 (일상대화, 질문 등)
+                "run_pipeline": "run_pipeline", # 분석 파이프라인 실행
+                "handle_decision": "handle_decision", # 재검색 분기 처리
             },
         )
 
@@ -88,18 +88,17 @@ class DialogueAgent:
             )
             return state
 
-        # [NEW] 4번 기능 구현: 의도가 'general_chat'이면 바로 응답하고 종료
+        # [일상 대화 처리] 의도가 'general_chat'이면 바로 응답 생성
         if parsed.get("intent_type") == "general_chat":
-            # 가벼운 인사는 LLM이 생성한 답변을 그대로 사용
             chat_response = parsed.get("response") or "네, 안녕하세요! 무엇을 도와드릴까요?"
             state["response"] = SystemResponse(
-                type="chat", # 프론트엔드에서 일반 텍스트로 처리
+                type="chat", 
                 message=chat_response,
                 payload=None,
             )
             return state
 
-        # 3. 필수 필드 검증 (intent_type == 'analysis' 인 경우만)
+        # 3. 필수 필드 검증 (intent_type == 'analysis' 인 경우)
         missing = []
         if not parsed.get("target"):
             missing.append("타깃(유전자/약물)")
@@ -131,21 +130,42 @@ class DialogueAgent:
         return state
 
     def node_route(self, state: DialogueState) -> DialogueState:
-        # 이미 앞단에서 응답(일상대화/질문/경고)이 생성되었다면 종료
+        """
+        [수정됨] 이 노드는 반드시 state(dict)를 반환해야 합니다.
+        경로 결정("end_turn" 등)은 여기서 하지 않고 route_after_parse에서 합니다.
+        """
+        # 1. 이미 앞단(Parse)에서 응답이 생성되었다면(일상대화, 에러 등) 그대로 통과
         if state.get("response"):
-            return "end_turn"
+            return state
 
-        # 재검색 결정
+        # 2. 재검색 결정이면 통과
         if state.get("user_decision"):
             return state
 
-        # UserQuery가 있으면 파이프라인 진행
-        if "user_query" in state:
-            return state # -> run_pipeline으로 라우팅됨
+        # 3. UserQuery가 있는지 확인 (없으면 에러 처리)
+        uq = state.get("user_query")
+        if not uq:
+            state["response"] = SystemResponse(
+                type="warning",
+                message="요청을 해석하는 데 실패했습니다. 다시 시도해 주세요.",
+                payload=None,
+            )
+            return state
 
-        # 예외 상황
-        state["response"] = SystemResponse(type="warning", message="오류가 발생했습니다.")
-        return "end_turn"
+        # 4. 모든 정보가 충분함 -> 안내 메시지 세팅 (선택사항)
+        # (실제로는 run_pipeline 결과가 덮어쓰겠지만, 로그용으로 남김)
+        target_info = uq.target
+        if uq.disease:
+            target_info += f" ({uq.disease})"
+            
+        # 여기서 response를 설정하지 않고 pipeline으로 넘길 수도 있습니다.
+        # 하지만 일단 정보성 메시지를 state에 담아둡니다.
+        # state["response"] = SystemResponse(
+        #     type="info",
+        #     message=f"[{target_info}]에 대한 분석을 시작합니다.",
+        #     payload={"query_id": uq.query_id},
+        # )
+        return state
 
     def node_run_pipeline(self, state: DialogueState) -> DialogueState:
         uq = state.get("user_query")
@@ -216,19 +236,27 @@ class DialogueAgent:
         return state
 
     # -----------------------
-    # Router Logic
+    # Router Logic (Conditional Edges)
     # -----------------------
     def route_after_parse(self, state: DialogueState) -> str:
-        # 일상 대화, 질문, 경고 등 이미 응답이 생성된 경우
+        """
+        [수정됨] 다음 단계로 어디를 갈지 결정하는 함수 (문자열 반환)
+        """
+        # 1. 이미 응답이 있는 경우 (일상대화, 질문, 경고, 에러) -> 종료
         if state.get("response"):
-            return "end_turn" # 수정: ask_clarify -> end_turn (의미 명확화)
+            # 단, info 타입은 단순 로그성이라면 파이프라인 진행 가능.
+            # 하지만 현재 구조상 parse에서 chat/question/warning 생성 시 바로 종료가 맞음.
+            return "end_turn"
 
+        # 2. 재검색 결정 -> 핸들러로 이동
         if state.get("user_decision"):
             return "handle_decision"
 
+        # 3. UserQuery가 있으면 -> 파이프라인 실행
         if "user_query" in state:
             return "run_pipeline"
 
+        # 그 외 -> 종료
         return "end_turn"
 
     # -----------------------
@@ -243,9 +271,6 @@ class DialogueAgent:
         return None
 
     def _llm_parse_user_text(self, text: str) -> Dict[str, Any] | None:
-        """
-        [수정됨] intent_type을 추가하여 분석 요청과 일반 대화를 구분
-        """
         system_prompt = """
         You are an intelligent assistant for biomedical research.
         Analyze the user's input and extract the intent and entities.
