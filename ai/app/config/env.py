@@ -6,6 +6,8 @@ load_dotenv()
 UPSTAGE_API_KEY = os.getenv("UPSTAGE_API_KEY")
 LANGSMITH_API_KEY = os.getenv("LANGSMITH_API_KEY")
 NCBI_EMAIL = os.getenv("NCBI_EMAIL")
+NCBI_TOOL = os.getenv("NCBI_TOOL", "target-validation-assistant").strip()
+
 
 if not UPSTAGE_API_KEY:
     raise RuntimeError("UPSTAGE_API_KEY is not set")

@@ -1,4 +1,6 @@
 # app/services/pubmed/parser.py
+from __future__ import annotations
+
 from typing import List
 import re
 
@@ -13,7 +15,7 @@ def _extract_tag(record: str, tag: str) -> str:
 
 
 def split_sentences(text: str) -> List[str]:
-    text = text.replace("\n", " ")
+    text = (text or "").replace("\n", " ")
     sentences = re.split(r"(?<=[.!?])\s+", text)
     return [s.strip() for s in sentences if len(s.strip()) > 5]
 
@@ -22,7 +24,7 @@ def parse_medline(
     pmid: str,
     record: str,
     query_id: str,
-    retrieval_reason: RetrievalReason = "keyword"
+    retrieval_reason: RetrievalReason = "keyword",
 ) -> Paper:
     """
     MEDLINE text → Paper 객체
@@ -38,15 +40,12 @@ def parse_medline(
     return Paper(
         pmid=pmid,
         title=title,
-        journal=journal,
+        journal=journal or None,
         year=year,
         abstract_sentences=[
-            AbstractSentence(
-                sentence_id=f"{pmid}_s{i}",
-                text=s
-            )
+            AbstractSentence(sentence_id=f"{pmid}_s{i}", text=s)
             for i, s in enumerate(sentences)
         ],
         retrieval_reason=retrieval_reason,
-        query_id=query_id
+        query_id=query_id,
     )
