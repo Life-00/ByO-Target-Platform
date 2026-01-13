@@ -16,3 +16,13 @@ llm_client = OpenAI(
 )
 
 DEFAULT_LLM_MODEL = "solar-pro-2"
+
+
+def generate_text(prompt: str) -> str:
+    """LLM text generation entrypoint"""
+    resp = llm_client.chat.completions.create(
+        model=DEFAULT_LLM_MODEL,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.2,
+    )
+    return resp.choices[0].message.content

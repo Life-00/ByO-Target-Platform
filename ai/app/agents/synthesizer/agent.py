@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from typing import Dict, Any, List
+from typing import Dict, List
 from datetime import datetime
 
-from app.schemas.claim import ValidatedClaims, ValidatedClaim
+from app.schemas.claim import ValidatedClaims
 from app.schemas.dossier import TargetDossier, DossierSection
+from app.core.llm import generate_text  # 공용 LLM 사용
 
 
 class SynthesizerAgent:
@@ -12,18 +13,19 @@ class SynthesizerAgent:
     SynthesizerAgent
     ----------------
     - Input : ValidatedClaims
-    - Output: TargetDossier (schema-only)
+    - Output: TargetDossier
     - No decision / no policy / no interpretation
     """
 
     def _new_dossier_id(self) -> str:
         return datetime.now().strftime("d_%Y%m%d_%H%M%S")
 
-    # Core mapping
     def to_target_dossier(
         self,
         validated: ValidatedClaims,
-        *, target: str, dossier_id: str | None = None,
+        *,
+        target: str,
+        dossier_id: str | None = None,
         format: str = "markdown",
     ) -> TargetDossier:
 
@@ -35,7 +37,6 @@ class SynthesizerAgent:
             "risk_signals": [],
         }
 
-        # Key claims
         for claim in validated.claims:
             claim_pmids: List[str] = []
 
@@ -57,14 +58,15 @@ class SynthesizerAgent:
                 ],
             }
 
+            formatted_text = generate_text(str(text_block))
+
             sections["key_claims"].append(
                 DossierSection(
-                    text=str(text_block),
+                    text=formatted_text,
                     citations=sorted(set(claim_pmids)),
                 )
             )
 
-            # Risk signals
             risk_signals = claim.risk_signals or {}
             if isinstance(risk_signals, dict):
                 for signal_type, signals in risk_signals.items():
@@ -89,7 +91,6 @@ class SynthesizerAgent:
             format=format,
         )
 
-    # markdown으로 출력
     def to_markdown(self, dossier: TargetDossier) -> str:
         md: List[str] = []
         md.append(f"# Target Dossier: {dossier.target}")
@@ -106,5 +107,5 @@ class SynthesizerAgent:
 
         return "\n".join(md).strip() + "\n"
 
-    def run(self,validated: ValidatedClaims, *, target: str,) -> TargetDossier:
+    def run(self, validated: ValidatedClaims, *, target: str) -> TargetDossier:
         return self.to_target_dossier(validated, target=target)
