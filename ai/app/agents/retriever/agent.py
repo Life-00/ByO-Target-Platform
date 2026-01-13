@@ -9,7 +9,7 @@ from app.agents.retriever.pipeline import RetrieverPipeline
 class RetrieverAgent:
     def __init__(
             self,
-            use_llm_expand: bool = False,
+            use_llm_expand: bool = True,
             use_llm_filter: bool = True,
             default_retmax: int = 50,
             semantic_top_n: int = 200,

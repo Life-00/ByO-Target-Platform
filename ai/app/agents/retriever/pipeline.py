@@ -46,7 +46,7 @@ class RetrieverPipeline:
         _, pmid_prov = self.fetcher.collect_pmids(expanded_queries, retmax=retmax)
 
         # 3) Fetch + parse
-        papers_raw = self.fetcher.fetch_and_parse(expanded_queries, pmid_prov)
+        papers_raw = PubMedFetcher.fetch_and_parse(expanded_queries, pmid_prov)
 
         # 4) Semantic rerank + topN
         qtext = " ".join(
