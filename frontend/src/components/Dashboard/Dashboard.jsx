@@ -11,82 +11,105 @@ import {
   Loader2,
   Trash2,
   UploadCloud,
+  Menu, // 햄버거 메뉴 아이콘
+  ChevronLeft, // 닫기 화살표 아이콘
 } from "lucide-react";
 import api from "../../api";
 import "./Dashboard.css";
 
 const Dashboard = ({ onLogout }) => {
+  // --- 상태 관리 ---
   const [sessions, setSessions] = useState([]);
-  const [currentSessionId, setCurrentSessionId] = useState(null);
+  const [currentSessionId, setCurrentSessionId] = useState(null); // null = 새 채팅 준비 상태
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [pendingFiles, setPendingFiles] = useState([]);
   const [isWaiting, setIsWaiting] = useState(false);
   const [dragActive, setDragActive] = useState(false);
 
+  // 반응형 사이드바 상태 (기본값: 데스크탑은 열림, 모바일은 닫힘)
+  const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth > 768);
+
   const scrollRef = useRef(null);
   const isInitializing = useRef(false);
 
+  // --- 초기화 로직 (접속 시) ---
   useEffect(() => {
     const init = async () => {
       if (isInitializing.current) return;
       isInitializing.current = true;
       try {
         const res = await api.get("/chat/sessions");
-        if (res.data.length > 0) {
-          setSessions(res.data);
-          handleSelectSession(res.data[0].id);
-        } else {
-          handleNewChat();
-        }
+        setSessions(res.data);
+        // 중요: 최근 세션을 자동으로 선택하지 않음 -> 빈 화면 유지
+        // 사용자가 명시적으로 클릭하거나 입력을 시작해야 세션 활성화
       } catch (err) {
-        isInitializing.current = false;
+        console.error("세션 목록 로드 실패", err);
       }
     };
     init();
+
+    // 화면 크기 변경 감지하여 사이드바 상태 자동 조절
+    const handleResize = () => {
+      if (window.innerWidth <= 768) {
+        setIsSidebarOpen(false);
+      } else {
+        setIsSidebarOpen(true);
+      }
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
   }, []);
 
+  // 스크롤 자동 이동
   useEffect(() => {
     if (scrollRef.current)
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages, isWaiting]);
 
+  // --- 기능 핸들러 ---
+
+  // 세션 클릭
   const handleSelectSession = async (id) => {
     setCurrentSessionId(id);
     try {
       const res = await api.get(`/chat/sessions/${id}/messages`);
       setMessages(res.data);
+      // 모바일에서는 선택 시 사이드바 닫기
+      if (window.innerWidth <= 768) setIsSidebarOpen(false);
     } catch (err) {
       console.error(err);
     }
   };
 
-  const handleNewChat = async () => {
-    try {
-      const res = await api.post("/chat/sessions");
-      setSessions((prev) => [res.data, ...prev]);
-      handleSelectSession(res.data.id);
-    } catch (err) {
-      alert("생성 실패");
-    }
+  // 'New Chatting' 버튼 클릭 -> 상태 초기화 (실제 생성은 메시지 보낼 때)
+  const handleResetChat = () => {
+    setCurrentSessionId(null);
+    setMessages([]);
+    setPendingFiles([]);
+    setInput("");
+    if (window.innerWidth <= 768) setIsSidebarOpen(false);
   };
 
+  // 세션 삭제
   const handleDeleteSession = async (e, id) => {
     e.stopPropagation();
-    if (!window.confirm("삭제할까요?")) return;
+    if (!window.confirm("이 대화를 삭제하시겠습니까?")) return;
     try {
       await api.delete(`/chat/sessions/${id}`);
       const updated = sessions.filter((s) => s.id !== id);
       setSessions(updated);
+
+      // 현재 보고 있는 세션을 삭제했다면 초기화
       if (currentSessionId === id) {
-        if (updated.length > 0) handleSelectSession(updated[0].id);
-        else window.location.reload();
+        handleResetChat();
       }
     } catch (err) {
       alert("삭제 실패");
     }
   };
 
+  // 파일 선택
   const handleFileSelection = (files) => {
     setPendingFiles((prev) => [...prev, ...Array.from(files)]);
   };
@@ -95,14 +118,12 @@ const Dashboard = ({ onLogout }) => {
     setPendingFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
+  // 드래그 앤 드롭
   const handleDrag = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    if (e.type === "dragenter" || e.type === "dragover") {
-      setDragActive(true);
-    } else if (e.type === "dragleave") {
-      setDragActive(false);
-    }
+    if (e.type === "dragenter" || e.type === "dragover") setDragActive(true);
+    else if (e.type === "dragleave") setDragActive(false);
   };
 
   const handleDrop = (e) => {
@@ -114,18 +135,13 @@ const Dashboard = ({ onLogout }) => {
     }
   };
 
+  // 메시지 전송 (핵심 로직)
   const handleSendMessage = async () => {
-    if (
-      (!input.trim() && pendingFiles.length === 0) ||
-      isWaiting ||
-      !currentSessionId
-    )
-      return;
+    if ((!input.trim() && pendingFiles.length === 0) || isWaiting) return;
 
     const userContent = input.trim();
-    const targetId = currentSessionId;
-    const isFirst = messages.length <= 1;
 
+    // 1. 화면에 사용자 메시지 즉시 표시
     setMessages((prev) => [
       ...prev,
       { role: "user", content: userContent || "파일 분석 요청" },
@@ -134,15 +150,29 @@ const Dashboard = ({ onLogout }) => {
     setIsWaiting(true);
 
     try {
-      if (isFirst && userContent) {
-        const title =
-          userContent.substring(0, 15) + (userContent.length > 15 ? "..." : "");
-        await api.patch(`/chat/sessions/${targetId}`, { title });
-        setSessions((prev) =>
-          prev.map((s) => (s.id === targetId ? { ...s, title } : s))
-        );
+      let targetId = currentSessionId;
+
+      // 2. 세션 ID가 없으면(=새 채팅) 서버에 세션 생성 요청
+      if (!targetId) {
+        const createRes = await api.post("/chat/sessions");
+        targetId = createRes.data.id;
+
+        // 제목 생성 (내용 앞부분 따오기)
+        const newTitle = userContent
+          ? userContent.substring(0, 15) +
+            (userContent.length > 15 ? "..." : "")
+          : "새로운 대화";
+
+        // 제목 업데이트
+        await api.patch(`/chat/sessions/${targetId}`, { title: newTitle });
+
+        // 상태 업데이트
+        const newSession = { ...createRes.data, title: newTitle };
+        setSessions((prev) => [newSession, ...prev]);
+        setCurrentSessionId(targetId);
       }
 
+      // 3. 메시지 전송
       const formData = new FormData();
       formData.append("message", userContent || "파일을 분석해줘.");
       pendingFiles.forEach((file) => formData.append("files", file));
@@ -154,7 +184,8 @@ const Dashboard = ({ onLogout }) => {
       setMessages((prev) => [...prev, { role: "ai", content: res.data.reply }]);
       setPendingFiles([]);
     } catch (err) {
-      alert("전송 실패");
+      console.error(err);
+      alert("전송 중 오류가 발생했습니다.");
     } finally {
       setIsWaiting(false);
     }
@@ -162,13 +193,34 @@ const Dashboard = ({ onLogout }) => {
 
   return (
     <div className="dashboard-container">
-      <aside className="sidebar">
-        <div className="sidebar-title">
-          <Microscope size={26} /> <span>TV-A</span>
+      {/* 모바일 오버레이 (사이드바 열렸을 때 배경) */}
+      {isSidebarOpen && window.innerWidth <= 768 && (
+        <div
+          className="mobile-overlay"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
+      {/* --- 사이드바 --- */}
+      <aside className={`sidebar ${!isSidebarOpen ? "closed" : ""}`}>
+        <div className="sidebar-header">
+          <div className="sidebar-title">
+            <Microscope size={26} /> <span>TV-A</span>
+          </div>
+          {/* 메뉴 닫기 버튼 (제목 우측) */}
+          <button
+            className="toggle-btn"
+            onClick={() => setIsSidebarOpen(false)}
+            aria-label="Close menu"
+          >
+            <ChevronLeft size={24} />
+          </button>
         </div>
-        <button className="new-chat-btn" onClick={handleNewChat}>
+
+        <button className="new-chat-btn" onClick={handleResetChat}>
           <Plus size={20} /> New Chatting
         </button>
+
         <div className="chat-list">
           <p className="chat-list-header">RESEARCH HISTORY</p>
           {sessions.map((s) => (
@@ -191,18 +243,46 @@ const Dashboard = ({ onLogout }) => {
             </div>
           ))}
         </div>
+
         <button onClick={onLogout} className="logout-btn">
           <LogOut size={18} /> Logout
         </button>
       </aside>
 
+      {/* --- 메인 영역 --- */}
       <main className="chat-main">
+        {/* 메뉴 열기 버튼 (사이드바 닫혔을 때만 보임) */}
+        {!isSidebarOpen && (
+          <button
+            className="sidebar-closed-toggle"
+            onClick={() => setIsSidebarOpen(true)}
+            aria-label="Open menu"
+          >
+            <Menu size={20} />
+          </button>
+        )}
+
         <div className="message-container" ref={scrollRef}>
+          {/* 빈 화면 안내 (세션이 선택되지 않았거나 메시지가 없을 때) */}
+          {messages.length === 0 && !currentSessionId && (
+            <div className="empty-state">
+              <Microscope
+                size={56}
+                style={{ marginBottom: 20, opacity: 0.2 }}
+              />
+              <h3>무엇을 도와드릴까요?</h3>
+              <p style={{ marginTop: 10, fontSize: 14 }}>
+                새로운 연구 분석을 시작하려면 아래에 질문을 입력하세요.
+              </p>
+            </div>
+          )}
+
           {messages.map((m, i) => (
             <div key={i} className={`msg-bubble ${m.role}`}>
               {m.content}
             </div>
           ))}
+
           {isWaiting && (
             <div className="msg-bubble ai loading-msg">
               <Loader2 className="animate-spin" size={16} /> 분석 중...
@@ -210,6 +290,7 @@ const Dashboard = ({ onLogout }) => {
           )}
         </div>
 
+        {/* 하단 입력 영역 */}
         <div className="input-area-wrapper" onDragEnter={handleDrag}>
           {dragActive && (
             <div
@@ -265,12 +346,13 @@ const Dashboard = ({ onLogout }) => {
                 (e.preventDefault(), handleSendMessage())
               }
               placeholder="질문을 입력하세요..."
-              disabled={!currentSessionId || isWaiting}
+              // 세션이 없어도 입력 가능해야 하므로 disabled 조건 완화
+              disabled={isWaiting}
             />
             <button
               className="icon-send-btn"
               onClick={handleSendMessage}
-              disabled={!currentSessionId || isWaiting}
+              disabled={isWaiting}
             >
               {isWaiting ? (
                 <Loader2 className="animate-spin" size={24} />
