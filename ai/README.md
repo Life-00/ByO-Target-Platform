@@ -81,7 +81,6 @@ ai/
 * 부분 실패 허용
 * 중간 결과 누적 
 * LangGraph 사용 가능 (이 에이전트 내부에서만)
-
 ### 저장 :
 * KnowledgeChunk 단위로 Vector DB에 즉시 저장
 
