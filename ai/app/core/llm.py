@@ -1,13 +1,9 @@
-from openai import OpenAI
-from transformers import AutoTokenizer
+from __future__ import annotations
+
 import os
+from openai import OpenAI
 
 UPSTAGE_API_KEY = os.getenv("UPSTAGE_API_KEY")
-
-# Tokenizer (Extractor / Validator prompt length 관리용)
-tokenizer = AutoTokenizer.from_pretrained(
-    "upstage/solar-pro-preview-instruct"
-)
 
 # OpenAI-compatible client (solar-pro-2)
 llm_client = OpenAI(
@@ -15,7 +11,7 @@ llm_client = OpenAI(
     api_key=UPSTAGE_API_KEY,
 )
 
-DEFAULT_LLM_MODEL = "solar-pro-2"
+DEFAULT_LLM_MODEL = "solar-pro"
 
 
 def generate_text(prompt: str) -> str:
@@ -26,3 +22,9 @@ def generate_text(prompt: str) -> str:
         temperature=0.2,
     )
     return resp.choices[0].message.content
+
+
+def get_tokenizer():
+    """필요할 때만 tokenizer 로딩"""
+    from transformers import AutoTokenizer
+    return AutoTokenizer.from_pretrained("upstage/solar-pro-preview-instruct")
