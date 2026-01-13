@@ -1,94 +1,51 @@
 # app/agents/extractor/prompts.py
+
 from __future__ import annotations
 
 
-def claim_detection_prompt(sentence: str) -> str:
-    """
-    Step 1. Claim Detection
-    - Binary decision + rewrite
-    """
+def extract_claims_prompt(abstract: str) -> str:
     return f"""
-    You are a scientific information extractor.
+    You are an expert scientific information extractor.
     
-    Task:
-    Decide whether the sentence below is an independent scientific claim.
+    Given the following abstract, extract the key scientific claims.
+    Each claim should be a concise, standalone statement.
     
-    Definition:
-    - A claim asserts a relationship, effect, association, or experimental finding.
-    - Background information, definitions, or general descriptions are NOT claims.
-    
-    Sentence:
-    \"\"\"{sentence}\"\"\"
-    
-    Output rules:
-    - If NOT a claim: output exactly "NO"
-    - If a claim: rewrite it as a concise, standalone claim (one sentence).
-    - Do NOT add information not present in the sentence.
-    """.strip()
-
-
-def entity_extraction_prompt(
-    claim: str,
-    disease_hint: str | None = None,
-    target_hint: str | None = None,
-) -> str:
-    """
-    Step 2. Entity Extraction (JSON only)
-    """
-    hints = []
-    if disease_hint:
-        hints.append(f'DISEASE_HINT: "{disease_hint}"')
-    if target_hint:
-        hints.append(f'TARGET_HINT: "{target_hint}"')
-
-    hint_block = "\n".join(hints) if hints else "NONE"
-
-    return f"""
-    You are a scientific entity extractor.
-    
-    Task:
-    Extract the primary TARGET and DISEASE explicitly mentioned in the claim.
-    - If an entity is not explicitly stated, return null.
-    - Do NOT guess or infer unstated entities.
-    - Use hints only if they are clearly supported by the claim text.
-    
-    Hints:
-    {hint_block}
-    
-    Claim:
-    \"\"\"{claim}\"\"\"
+    Abstract:
+    \"\"\"{abstract}\"\"\"
     
     Return STRICT JSON only:
     {{
-      "target": string | null,
-      "disease": string | null
+      "claims": [
+        {{
+          "claim": string,
+          "source_sentence_id": number
+        }}
+      ]
     }}
     """.strip()
 
 
 def relation_inference_prompt(claim: str) -> str:
-    """
-    Step 3. Relation & Evidence Inference (JSON only)
-    """
     return f"""
-    You are a scientific relation annotator.
+    You are an expert scientific reasoning model.
     
-    Task:
-    Infer structured relation labels from the claim below.
+    Analyze the following claim and extract structured relational information.
     
-    Important:
-    - Confidence refers to your confidence in the extraction labels,
-      NOT the truth of the scientific claim.
-    - If information is unclear, use "unknown" and lower confidence.
+    Guidelines:
+    - Preserve the semantic nuance of the claim.
+    - Only constrain effect_direction and evidence_level to the allowed values.
+    - confidence reflects your confidence in this structured extraction, not factual truth.
     
     Claim:
     \"\"\"{claim}\"\"\"
     
     Return STRICT JSON only:
     {{
-      "stance": "support" | "refute" | "neutral" | "unknown",
-      "effect": "increase" | "decrease" | "no_change" | "mixed" | "unknown",
-      "evidence_level": "in_vitro" | "in_vivo" | "clinical" | "review" | "unknown",
+      "stance_description": string,
+      "effect_direction": "increase | decrease | modulate | no_significant_effect | unknown",
+      "effect_descriptor": string | null,
+      "outcome_measure": string | null,
+      "evidence_level": "in_vitro | in_vivo | clinical | review | unknown",
       "confidence": number
     }}
     """.strip()
