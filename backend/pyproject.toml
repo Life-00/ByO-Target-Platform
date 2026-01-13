@@ -6,7 +6,6 @@ readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
     "bcrypt==4.0.1",
-    "chromadb>=1.4.0",
     "email-validator>=2.3.0",
     "fastapi>=0.128.0",
     "langchain-chroma>=0.2.6",
@@ -14,7 +13,6 @@ dependencies = [
     "langchain-core>=0.3.82",
     "langchain-text-splitters>=0.3.11",
     "langchain-upstage>=0.7.4",
-    "langgraph>=0.6.11",
     "openai>=2.14.0",
     "passlib[bcrypt]>=1.7.4",
     "psycopg2-binary>=2.9.11",
