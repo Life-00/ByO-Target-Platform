@@ -108,6 +108,7 @@ class DialogueAgent:
             query_id=str(uuid.uuid4()),
             target=parsed.get("target"),
             disease=parsed.get("disease"),
+            organ=parsed.get("organ"),
             research_question=parsed.get("question"),
             constraints=SearchConstraints(
                 retmax=parsed.get("retmax", 5),
@@ -115,18 +116,6 @@ class DialogueAgent:
                 date_to=parsed.get("date_to"),
             ),
         )
-        # uq = UserQuery(
-        #     query_id=str(uuid.uuid4()),
-        #     target=parsed["target"],
-        #     disease=parsed.get("disease"),
-        #     organ=parsed.get("organ"),
-        #     research_question=parsed["question"],
-        #     constraints=SearchConstraints(
-        #         retmax=parsed.get("retmax", 5),
-        #         date_from=parsed.get("date_from"),
-        #         date_to=parsed.get("date_to"),
-        #     ) if parsed.get("retmax") else None,
-        # )
 
         state["user_query"] = uq
         return state
@@ -423,5 +412,3 @@ class DialogueAgent:
                 "현재 결과를 생성하는 중 오류가 발생했습니다.\n"
                 "잠시 후 다시 시도해 주세요."
             )
-
-
