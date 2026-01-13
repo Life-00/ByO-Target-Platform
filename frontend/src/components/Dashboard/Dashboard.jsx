@@ -8,7 +8,6 @@ import {
   Send,
   LogOut,
   X,
-  FileText,
   Loader2,
   Trash2,
   UploadCloud,
@@ -20,11 +19,12 @@ import {
   BookOpen,
   CheckSquare,
   Layers,
-  FileUp, // [NEW] 파일 업로드 아이콘
+  FileUp, // 파일 업로드 아이콘
 } from "lucide-react";
 import api from "../../api";
 import "./Dashboard.css";
 
+// 에이전트 정의
 const AGENTS = [
   { id: "general", name: "General Chat", icon: Layers, color: "#64748b" },
   { id: "retrieval", name: "Paper Search", icon: Search, color: "#0ea5e9" },
@@ -40,21 +40,21 @@ const Dashboard = ({ onLogout }) => {
   const [input, setInput] = useState("");
   const [isWaiting, setIsWaiting] = useState(false);
 
-  // [Mod] References 통합 관리 (서버 파일 + 로컬 업로드 대기 파일)
+  // [핵심] 참조 자료 통합 관리 (서버 파일 + 로컬 업로드 대기 파일)
   // 구조: { id: string|number, title: string, type: 'file'|'paper', checked: boolean, file?: File, isLocal?: boolean }
   const [references, setReferences] = useState([]);
 
   const [activeAgent, setActiveAgent] = useState("general");
   const [isRefPanelOpen, setIsRefPanelOpen] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth > 1024);
-  const [dragActive, setDragActive] = useState(false); // 드래그 상태 (우측 패널용)
+  const [dragActive, setDragActive] = useState(false);
 
   const scrollRef = useRef(null);
   const textareaRef = useRef(null);
-  const fileInputRef = useRef(null); // 우측 패널 파일 인풋용
+  const fileInputRef = useRef(null); // 숨겨진 파일 인풋 참조
   const isInitializing = useRef(false);
 
-  // --- 초기화 ---
+  // --- 초기화 로직 ---
   useEffect(() => {
     const init = async () => {
       if (isInitializing.current) return;
@@ -81,21 +81,26 @@ const Dashboard = ({ onLogout }) => {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
+  // 자동 스크롤
   useEffect(() => {
-    if (scrollRef.current)
+    if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
   }, [messages, isWaiting, input]);
 
   // --- 핸들러 ---
 
+  // 세션 선택
   const handleSelectSession = async (id) => {
     setCurrentSessionId(id);
     try {
       const msgRes = await api.get(`/chat/sessions/${id}/messages`);
       setMessages(msgRes.data);
-      // 서버에서 해당 세션의 문서 목록을 가져와 references에 세팅한다고 가정
-      // const docRes = await api.get(...)
+
+      // TODO: 백엔드에서 해당 세션의 문서 목록(context)을 가져와 references에 복원해야 함
+      // const docRes = await api.get(`/chat/sessions/${id}/documents`);
       // setReferences(docRes.data);
+
       setReferences([]); // 임시 초기화
       if (window.innerWidth <= 768) setIsSidebarOpen(false);
     } catch (err) {
@@ -103,27 +108,40 @@ const Dashboard = ({ onLogout }) => {
     }
   };
 
+  // 새 채팅 (모든 상태 초기화)
   const handleResetChat = () => {
     setCurrentSessionId(null);
     setMessages([]);
-    setReferences([]); // 파일 목록도 초기화
+    setReferences([]); // 참조 파일 목록도 초기화
     setInput("");
     setActiveAgent("general");
     if (window.innerWidth <= 768) setIsSidebarOpen(false);
     if (textareaRef.current) textareaRef.current.focus();
   };
 
-  // [Mod] 파일 선택 핸들러 (중복 방지 & Reference로 추가)
+  const handleDeleteSession = async (e, id) => {
+    e.stopPropagation();
+    if (!window.confirm("이 대화를 삭제하시겠습니까?")) return;
+    try {
+      await api.delete(`/chat/sessions/${id}`);
+      setSessions((prev) => prev.filter((s) => s.id !== id));
+      if (currentSessionId === id) handleResetChat();
+    } catch (err) {
+      alert("삭제 실패");
+    }
+  };
+
+  // [Right Sidebar] 파일 선택 핸들러 (중복 방지 & Reference로 추가)
   const handleFileSelection = (files) => {
     const newFiles = Array.from(files);
 
-    // 중복 체크
+    // 중복 체크 (제목 기준)
     const uniqueFiles = newFiles.filter((file) => {
       const isDuplicate = references.some((ref) => ref.title === file.name);
       return !isDuplicate;
     });
 
-    if (uniqueFiles.length === 0) {
+    if (uniqueFiles.length === 0 && newFiles.length > 0) {
       alert("이미 추가된 파일입니다.");
       return;
     }
@@ -133,13 +151,13 @@ const Dashboard = ({ onLogout }) => {
       title: file.name,
       type: "file",
       checked: true, // 업로드 시 기본 선택
-      isLocal: true, // 로컬 파일임을 표시
-      file: file, // 실제 파일 객체 저장
+      isLocal: true, // 로컬 파일 표시
+      file: file, // 실제 파일 객체
     }));
 
     setReferences((prev) => [...prev, ...newRefs]);
 
-    // 파일 추가 시 우측 패널이 닫혀있다면 열어줌
+    // 파일 추가 시 우측 패널 자동 열기
     if (!isRefPanelOpen) setIsRefPanelOpen(true);
   };
 
@@ -148,6 +166,7 @@ const Dashboard = ({ onLogout }) => {
     setReferences((prev) => prev.filter((ref) => ref.id !== id));
   };
 
+  // 체크박스 토글
   const toggleReference = (id) => {
     setReferences((prev) =>
       prev.map((ref) =>
@@ -156,7 +175,7 @@ const Dashboard = ({ onLogout }) => {
     );
   };
 
-  // [Mod] 드래그 앤 드롭 (우측 사이드바 영역)
+  // [Right Sidebar] 드래그 앤 드롭
   const handleDrag = (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -173,6 +192,7 @@ const Dashboard = ({ onLogout }) => {
     }
   };
 
+  // 입력창 높이 자동 조절
   const handleInputResize = (e) => {
     setInput(e.target.value);
     if (textareaRef.current) {
@@ -181,13 +201,16 @@ const Dashboard = ({ onLogout }) => {
     }
   };
 
+  // 메시지 전송
   const handleSendMessage = async () => {
-    // 로컬 파일 중 체크된 것이 있는지 확인
+    // 전송할 로컬 파일 확인
     const localFilesToSend = references.filter((r) => r.isLocal && r.checked);
 
     if ((!input.trim() && localFilesToSend.length === 0) || isWaiting) return;
 
     const userContent = input.trim();
+
+    // 1. UI 업데이트
     setMessages((prev) => [
       ...prev,
       { role: "user", content: userContent || "파일 분석 요청" },
@@ -198,11 +221,14 @@ const Dashboard = ({ onLogout }) => {
 
     try {
       let targetId = currentSessionId;
+
+      // 2. 세션 없으면 생성
       if (!targetId) {
         const createRes = await api.post("/chat/sessions");
         targetId = createRes.data.id;
         const newTitle = userContent
-          ? userContent.substring(0, 15) + "..."
+          ? userContent.substring(0, 15) +
+            (userContent.length > 15 ? "..." : "")
           : "새로운 대화";
         await api.patch(`/chat/sessions/${targetId}`, { title: newTitle });
         setSessions((prev) => [
@@ -212,40 +238,61 @@ const Dashboard = ({ onLogout }) => {
         setCurrentSessionId(targetId);
       }
 
+      // 3. FormData 구성
       const formData = new FormData();
       formData.append("message", userContent || "파일을 분석해줘.");
       formData.append("agent_mode", activeAgent);
 
-      // 1. 이미 서버에 있는 파일 ID들 (isLocal이 아닌 것들)
+      // (A) 이미 서버에 있는 파일 ID들 (isLocal이 아닌 것들)
       const serverRefIds = references
         .filter((r) => !r.isLocal && r.checked)
         .map((r) => r.id);
       formData.append("context_ids", JSON.stringify(serverRefIds));
 
-      // 2. 새로 업로드할 파일들 (isLocal인 것들)
+      // (B) 새로 업로드할 파일들 (isLocal인 것들)
       localFilesToSend.forEach((ref) => {
         formData.append("files", ref.file);
       });
 
+      // 4. API 전송
       const res = await api.post(`/chat/sessions/${targetId}/chat`, formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
 
+      // 5. 응답 처리
       setMessages((prev) => [...prev, { role: "ai", content: res.data.reply }]);
 
-      // 3. 전송 성공 후, 로컬 파일을 서버 파일로 상태 업데이트 (ID 교체 등)
-      // 예: 서버가 업로드된 파일들의 실제 ID를 uploaded_files로 돌려준다고 가정
+      // 6. 업로드 완료된 로컬 파일 상태 업데이트 (서버 파일로 전환)
       if (res.data.uploaded_files) {
-        // 기존 로컬 파일 제거하고 서버 응답으로 대체하거나 상태 업데이트 로직 필요
-        // 여기서는 간단히 로컬 플래그 제거 형태로 가정
-        const updatedRefs = references.map((ref) => {
-          if (ref.isLocal && ref.checked) {
-            // 실제로는 서버에서 받은 ID로 교체해야 함
-            return { ...ref, isLocal: false };
-          }
-          return ref;
+        // 백엔드가 업로드된 파일의 메타데이터 리스트를 반환한다고 가정
+        // 여기서는 간단히 로컬 플래그를 제거하는 로직으로 구현
+        setReferences((prev) => {
+          // 기존 서버 파일 + (응답으로 받은 새 파일들로 로컬 파일 대체)
+          const existingServerFiles = prev.filter((r) => !r.isLocal);
+
+          // 새 파일들 (실제로는 ID 매핑이 필요함)
+          const newlyUploaded = localFilesToSend.map((localFile, idx) => ({
+            ...localFile,
+            isLocal: false,
+            // 서버에서 받은 ID가 있다면 교체: id: res.data.uploaded_files[idx].id
+          }));
+
+          // 체크 안 된 로컬 파일은 유지
+          const remainingLocal = prev.filter((r) => r.isLocal && !r.checked);
+
+          return [...existingServerFiles, ...newlyUploaded, ...remainingLocal];
         });
-        setReferences(updatedRefs);
+      }
+
+      // 7. 검색 결과(Retrieval)가 있다면 추가
+      if (res.data.found_documents) {
+        const newDocs = res.data.found_documents.map((doc) => ({
+          ...doc,
+          checked: false,
+          isLocal: false,
+        }));
+        setReferences((prev) => [...prev, ...newDocs]);
+        if (!isRefPanelOpen) setIsRefPanelOpen(true);
       }
     } catch (err) {
       console.error(err);
@@ -260,6 +307,7 @@ const Dashboard = ({ onLogout }) => {
 
   return (
     <div className="dashboard-container">
+      {/* 모바일 오버레이 */}
       {isSidebarOpen && window.innerWidth <= 768 && (
         <div
           className="mobile-overlay"
@@ -267,9 +315,8 @@ const Dashboard = ({ onLogout }) => {
         />
       )}
 
-      {/* --- Left Sidebar --- */}
+      {/* --- 1. Left Sidebar (History) --- */}
       <aside className={`sidebar ${!isSidebarOpen ? "closed" : ""}`}>
-        {/* (기존 코드 동일) */}
         <div className="sidebar-header">
           <div className="sidebar-title">
             <Microscope size={26} /> <span>TV-A</span>
@@ -281,9 +328,11 @@ const Dashboard = ({ onLogout }) => {
             <ChevronLeft size={24} />
           </button>
         </div>
+
         <button className="new-chat-btn" onClick={handleResetChat}>
           <Plus size={20} /> New Chatting
         </button>
+
         <div className="chat-list">
           <p className="chat-list-header">RESEARCH HISTORY</p>
           {sessions.map((s) => (
@@ -306,13 +355,15 @@ const Dashboard = ({ onLogout }) => {
             </div>
           ))}
         </div>
+
         <button onClick={onLogout} className="logout-btn">
           <LogOut size={18} /> Logout
         </button>
       </aside>
 
-      {/* --- Main Chat Area --- */}
+      {/* --- 2. Main Chat Area --- */}
       <main className="chat-main">
+        {/* 사이드바 토글 버튼들 */}
         {!isSidebarOpen && (
           <button
             className="sidebar-closed-toggle left"
@@ -330,6 +381,7 @@ const Dashboard = ({ onLogout }) => {
           </button>
         )}
 
+        {/* 메시지 리스트 */}
         <div className="message-container" ref={scrollRef}>
           {messages.length === 0 && !currentSessionId && (
             <div className="empty-state">
@@ -341,6 +393,7 @@ const Dashboard = ({ onLogout }) => {
               <p>원하는 에이전트를 선택하고 연구를 시작하세요.</p>
             </div>
           )}
+
           {messages.map((m, i) => (
             <div key={i} className={`msg-bubble ${m.role}`}>
               {m.role === "ai" ? (
@@ -355,17 +408,21 @@ const Dashboard = ({ onLogout }) => {
               )}
             </div>
           ))}
+
           {isWaiting && (
             <div className="msg-bubble ai loading-msg">
               <Loader2 className="animate-spin" size={16} />
-              Analyzing...
+              <span style={{ color: activeAgentColor, fontWeight: 600 }}>
+                {AGENTS.find((a) => a.id === activeAgent).name}
+              </span>
+              가 분석 중입니다...
             </div>
           )}
         </div>
 
-        {/* --- Floating Input Area --- */}
+        {/* --- Floating Input Wrapper --- */}
         <div className="floating-input-wrapper">
-          {/* Agent Selector (Floating top) */}
+          {/* Agent Selector (Floating Top) */}
           <div className="agent-selector-floating">
             {AGENTS.map((agent) => (
               <button
@@ -424,7 +481,7 @@ const Dashboard = ({ onLogout }) => {
         </div>
       </main>
 
-      {/* --- Right Sidebar (Reference & Upload) --- */}
+      {/* --- 3. Right Sidebar (Reference & Upload) --- */}
       <aside
         className={`right-sidebar ${!isRefPanelOpen ? "closed" : ""} ${
           dragActive ? "drag-active" : ""
@@ -441,7 +498,7 @@ const Dashboard = ({ onLogout }) => {
           </div>
 
           <div className="header-actions">
-            {/* [Mod] 업로드 버튼을 여기로 이동 */}
+            {/* 업로드 버튼 */}
             <button
               className="icon-btn"
               onClick={() => fileInputRef.current?.click()}
@@ -456,6 +513,7 @@ const Dashboard = ({ onLogout }) => {
               ref={fileInputRef}
               onChange={(e) => handleFileSelection(e.target.files)}
             />
+            {/* 닫기 버튼 */}
             <button
               className="icon-btn"
               onClick={() => setIsRefPanelOpen(false)}
@@ -469,7 +527,7 @@ const Dashboard = ({ onLogout }) => {
         {dragActive && (
           <div className="sidebar-drag-overlay">
             <UploadCloud size={40} />
-            <p>Drop files to add references</p>
+            <p>Drop files here</p>
           </div>
         )}
 

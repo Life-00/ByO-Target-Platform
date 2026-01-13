@@ -1,5 +1,317 @@
 /* =========================================
-   Floating Input Area (수정됨)
+   1. 기본 레이아웃 & 테마
+   ========================================= */
+.dashboard-container {
+  display: flex;
+  height: 100vh;
+  background-color: #f8fafc;
+  overflow: hidden;
+  position: relative;
+}
+
+/* --- Left Sidebar (History) --- */
+.sidebar {
+  width: 260px;
+  background-color: var(--bio-secondary);
+  color: white;
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+  white-space: nowrap;
+  flex-shrink: 0;
+  z-index: 50;
+}
+
+.sidebar.closed {
+  width: 0px;
+  padding: 0px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* --- Main Chat Area --- */
+.chat-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  background: white;
+  width: 100%;
+  min-width: 0;
+}
+
+/* --- Right Sidebar (References) --- */
+.right-sidebar {
+  width: 300px;
+  background: #fff;
+  border-left: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 40;
+  position: relative; /* 중요: 드래그 오버레이 기준점 */
+}
+
+.right-sidebar.closed {
+  width: 0;
+  opacity: 0;
+  overflow: hidden;
+  border-left: none;
+}
+
+/* =========================================
+   2. 사이드바 헤더 및 공통 스타일
+   ========================================= */
+.sidebar-header,
+.right-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  min-height: 40px;
+}
+
+.right-sidebar-header {
+  padding: 20px 15px;
+  border-bottom: 1px solid #f1f5f9;
+  margin-bottom: 0;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #1e293b;
+}
+.header-left h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.sidebar-title {
+  font-size: 20px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: white;
+}
+
+/* 아이콘 버튼 공통 */
+.toggle-btn {
+  background: transparent;
+  border: none;
+  color: white;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+}
+.toggle-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.icon-btn {
+  background: transparent;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+.icon-btn:hover {
+  background: #f1f5f9;
+  color: #1e293b;
+}
+
+/* 사이드바 닫혔을 때 플로팅 토글 버튼 */
+.sidebar-closed-toggle {
+  position: absolute;
+  top: 15px;
+  z-index: 40;
+  background: white;
+  color: #64748b;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  cursor: pointer;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+  display: flex;
+  align-items: center;
+  transition: all 0.2s;
+}
+.sidebar-closed-toggle.left {
+  left: 15px;
+}
+.sidebar-closed-toggle.right {
+  right: 15px;
+}
+.sidebar-closed-toggle:hover {
+  background: #f1f5f9;
+  color: var(--bio-primary);
+}
+
+/* =========================================
+   3. 채팅 리스트 및 메시지 영역
+   ========================================= */
+.new-chat-btn {
+  width: 100%;
+  padding: 12px;
+  background-color: var(--bio-primary);
+  color: white;
+  border: none;
+  border-radius: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 12px rgba(15, 118, 110, 0.2);
+  transition: all 0.2s;
+}
+.new-chat-btn:hover {
+  background-color: #0d615a;
+  transform: translateY(-2px);
+}
+
+.chat-list {
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.chat-list-header {
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  margin-bottom: 12px;
+  padding-left: 8px;
+}
+.chat-item {
+  padding: 12px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  margin-bottom: 6px;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  color: #cbd5e1;
+  transition: all 0.2s;
+}
+.chat-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+.chat-item.active {
+  background: rgba(45, 212, 191, 0.15);
+  color: #2dd4bf;
+  font-weight: 600;
+}
+.chat-item-info {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+  overflow: hidden;
+}
+.session-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.delete-session-icon {
+  opacity: 0;
+  color: #ef4444;
+  transition: opacity 0.2s;
+}
+.chat-item:hover .delete-session-icon {
+  opacity: 1;
+}
+
+.logout-btn {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 10px;
+  padding: 12px 14px;
+}
+.logout-btn:hover {
+  color: #ef4444;
+}
+
+/* 메시지 버블 */
+.message-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 30px 30px 150px 30px; /* Floating Input 가리지 않게 하단 여백 충분히 */
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.msg-bubble {
+  max-width: 70%;
+  padding: 12px 16px;
+  border-radius: 18px;
+  font-size: 15px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+.msg-bubble.user {
+  align-self: flex-end;
+  background-color: var(--bio-primary);
+  color: white;
+  border-bottom-right-radius: 2px;
+  white-space: pre-wrap;
+}
+.msg-bubble.ai {
+  align-self: flex-start;
+  background-color: #f1f5f9;
+  color: #1e293b;
+  border: 1px solid #e2e8f0;
+  border-bottom-left-radius: 2px;
+}
+.loading-msg {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #64748b;
+  font-size: 14px;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #94a3b8;
+  text-align: center;
+}
+
+/* =========================================
+   4. Floating Input Area & Agent Selector
    ========================================= */
 .floating-input-wrapper {
   position: absolute;
@@ -7,14 +319,13 @@
   left: 50%;
   transform: translateX(-50%);
   width: 90%;
-  max-width: 800px; /* 너무 넓어지지 않게 제한 */
+  max-width: 800px;
   z-index: 20;
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
-/* Agent Tabs (Floating) */
 .agent-selector-floating {
   display: flex;
   justify-content: center;
@@ -27,7 +338,7 @@
   align-items: center;
   gap: 6px;
   padding: 6px 14px;
-  background: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.85);
   backdrop-filter: blur(4px);
   border: 1px solid transparent;
   border-radius: 20px;
@@ -49,13 +360,12 @@
   border-color: var(--agent-color);
 }
 
-/* Input Box Container (Floating) */
 .input-box-container {
   display: flex;
   align-items: flex-end;
   background: white;
   padding: 14px 18px;
-  border-radius: 24px; /* 더 둥글게 */
+  border-radius: 24px;
   border: 1px solid #e2e8f0;
   gap: 12px;
   transition: all 0.3s ease;
@@ -63,7 +373,6 @@
 
 .input-box-container:focus-within {
   border-color: #cbd5e1;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12) !important;
 }
 
 .main-text-input {
@@ -93,75 +402,89 @@
   transition: all 0.2s;
   flex-shrink: 0;
 }
-
 .icon-send-btn:hover:not(:disabled) {
   background: #e2e8f0;
   transform: scale(1.05);
 }
 
 /* =========================================
-   Right Sidebar & Upload (수정됨)
+   5. Right Sidebar Items (References)
    ========================================= */
-.right-sidebar {
-  /* 기존 스타일 유지 + relative 포지셔닝 필수 */
-  position: relative;
-  /* ... */
+.reference-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 15px;
+  background: #f8fafc;
 }
 
-/* 드래그 상태일 때 스타일 */
-.right-sidebar.drag-active {
-  background-color: #f0fdfa;
-  border-color: var(--bio-primary);
-}
-
-.sidebar-drag-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(255, 255, 255, 0.9);
-  z-index: 50;
+.empty-ref {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: var(--bio-primary);
-  font-weight: 700;
-  pointer-events: none; /* 이벤트 통과 */
-}
-
-.header-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.icon-btn {
-  background: transparent;
-  border: none;
-  color: #64748b;
-  cursor: pointer;
-  padding: 4px;
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s;
-}
-.icon-btn:hover {
-  background: #f1f5f9;
-  color: #1e293b;
+  height: 200px;
+  color: #cbd5e1;
+  text-align: center;
+  font-size: 13px;
+  gap: 10px;
 }
 
 .ref-item {
-  position: relative;
-  /* 기존 스타일 유지 */
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  transition: all 0.2s;
+}
+.ref-item:hover {
+  border-color: #cbd5e1;
+}
+.ref-item.selected {
+  background-color: #f0fdfa;
+  border-color: var(--bio-primary);
 }
 
-/* 로컬 파일 배지 */
+.ref-checkbox input {
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--bio-primary);
+}
+
+.ref-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.ref-meta {
+  display: flex;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.ref-type {
+  font-size: 10px;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 700;
+}
+.ref-type.file {
+  background: #fee2e2;
+  color: #ef4444;
+}
+.ref-type.paper {
+  background: #e0f2fe;
+  color: #0ea5e9;
+}
+
 .ref-badge-local {
   font-size: 9px;
-  background: #fef08a; /* 노란색 */
+  background: #fef08a;
   color: #854d0e;
   padding: 1px 4px;
   border-radius: 3px;
@@ -169,7 +492,18 @@
   font-weight: 700;
 }
 
-/* 삭제 버튼 (개별 항목) */
+.ref-title {
+  margin: 0;
+  font-size: 13px;
+  color: #334155;
+  line-height: 1.4;
+  word-break: break-all;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 .ref-delete-btn {
   background: transparent;
   border: none;
@@ -184,25 +518,60 @@
   color: #ef4444;
 }
 
-.ref-meta {
+.right-sidebar-footer {
+  padding: 15px;
+  border-top: 1px solid #f1f5f9;
+  background: white;
+}
+.footer-info {
   display: flex;
   align-items: center;
-  margin-bottom: 2px;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--bio-primary);
+  margin-bottom: 4px;
+}
+.help-text {
+  font-size: 11px;
+  color: #94a3b8;
+  margin: 0;
+}
+
+/* 드래그 앤 드롭 오버레이 */
+.right-sidebar.drag-active {
+  background-color: #f0fdfa;
+  border-color: var(--bio-primary);
+}
+.sidebar-drag-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.9);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--bio-primary);
+  font-weight: 700;
+  pointer-events: none;
 }
 
 /* =========================================
-   Code Block & Markdown Improvement (수정됨)
+   6. Markdown Styles (가독성 개선)
    ========================================= */
 .markdown-body {
-  font-family: "Pretendard", -apple-system, BlinkMacSystemFont, system-ui,
-    sans-serif;
+  font-family: "Pretendard", -apple-system, BlinkMacSystemFont, sans-serif;
   line-height: 1.7;
   color: #334155;
 }
 
-/* 코드 블록 컨테이너 */
+/* 코드 블록 */
 .markdown-body pre {
-  background: #1e1e1e !important; /* VSCode Dark 느낌 */
+  background: #1e1e1e !important;
   color: #d4d4d4;
   padding: 16px;
   border-radius: 8px;
@@ -214,7 +583,6 @@
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 }
 
-/* 인라인 코드 */
 .markdown-body code {
   background: rgba(15, 118, 110, 0.08);
   color: #0f766e;
@@ -225,16 +593,14 @@
   font-weight: 500;
 }
 
-/* 코드 블록 내부의 코드 */
 .markdown-body pre code {
   background: transparent;
   color: inherit;
   padding: 0;
   font-weight: normal;
-  font-size: 100%;
 }
 
-/* 테이블 스타일 개선 */
+/* 테이블 */
 .markdown-body table {
   width: 100%;
   border-collapse: collapse;
@@ -244,7 +610,6 @@
   overflow: hidden;
   border: 1px solid #e2e8f0;
 }
-
 .markdown-body th {
   background-color: #f8fafc;
   font-weight: 600;
@@ -253,14 +618,12 @@
   padding: 12px;
   border-bottom: 2px solid #e2e8f0;
 }
-
 .markdown-body td {
   padding: 12px;
   border-bottom: 1px solid #f1f5f9;
   color: #475569;
 }
 
-/* 인용문 스타일 */
 .markdown-body blockquote {
   border-left: 4px solid var(--bio-primary);
   margin: 16px 0;
@@ -269,12 +632,4 @@
   color: #334155;
   font-style: italic;
   border-radius: 0 8px 8px 0;
-}
-
-.markdown-body h1,
-.markdown-body h2 {
-  border-bottom: none; /* 기존 밑줄 제거 후 깔끔하게 */
-  margin-top: 24px;
-  margin-bottom: 12px;
-  color: #0f172a;
 }
