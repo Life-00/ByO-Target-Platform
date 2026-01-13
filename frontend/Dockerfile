@@ -1,4 +1,4 @@
-FROM node:18 AS build
+FROM node:20 AS build
 
 ARG VITE_API_BASE_URL
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
@@ -14,6 +14,8 @@ COPY . .
 RUN npm run build
 
 FROM nginx:stable-alpine
+
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 COPY --from=build /app/dist /usr/share/nginx/html
 

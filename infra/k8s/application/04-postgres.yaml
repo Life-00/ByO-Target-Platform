@@ -1,0 +1,76 @@
+# 1. Deployment: PostgreSQL 컨테이너 실행
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tva-db
+  namespace: tva
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tva-db
+  template:
+    metadata:
+      labels:
+        app: tva-db
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:15
+          ports:
+            - containerPort: 5432
+          env:
+            # ConfigMap에서 설정값 가져오기
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: DB_NAME
+            - name: POSTGRES_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: DB_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: DB_PASSWORD
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: postgres-data
+          persistentVolumeClaim:
+            claimName: postgres-pvc
+
+---
+# 2. Service: 내부 네트워크 연결용
+apiVersion: v1
+kind: Service
+metadata:
+  name: tva-db  # ConfigMap의 DB_HOST와 일치!
+  namespace: tva
+spec:
+  selector:
+    app: tva-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+      protocol: TCP
+  type: ClusterIP
+
+---
+# 3. PVC: 데이터 영구 저장소
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: tva
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  # storageClassName: local-path  <-- Docker Desktop 사용 시 주석 처리 (자동 할당)

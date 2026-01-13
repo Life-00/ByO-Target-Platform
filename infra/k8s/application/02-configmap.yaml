@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: tva
+data:
+  # 1. 데이터베이스 연결 정보
+  DB_HOST: "tva-db"
+  DB_PORT: "5432"
+  DB_NAME: "tva-db"
+  DB_USER: "postgres"
+  DB_SSLMODE: "disable"
+
+  # 2. ChromaDB 연결 정보
+  CHROMA_HOST: "tva-chroma"
+  CHROMA_PORT: "8000"
+  CHROMA_MODE: "server"
+
+  # 3. 모델 설정 (.env 내용 반영)
+  UPSTAGE_BASE_URL: "https://api.upstage.ai/v1"
+  UPSTAGE_MODEL: "solar-pro2"
+  UPSTAGE_EMBED_MODEL: "solar-embedding-1-large"
+
+  # 4. CORS 설정 (중요: 아래 <EC2공인IP> 부분을 실제 IP로 꼭 바꿔주세요!)
+  CORS_ORIGINS: "http://<EC2공인IP>"
+
+
+  JWT_SECRET_KEY: "사용자님의_JWT_SECRET_KEY_값"
+  DB_PASSWORD: "사용자님의_DB_PASSWORD_값"
+  UPSTAGE_API_KEY: "사용자님의_UPSTAGE_API_KEY_값"

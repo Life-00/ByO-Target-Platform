@@ -29,3 +29,7 @@ Thumbs.db
 # Project Specific
 backend/uploads/
 backend/chroma_db/
+
+infra/
+**/*.yaml
+.env

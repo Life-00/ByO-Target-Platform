@@ -1,0 +1,47 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tva-ingress
+  namespace: tva
+spec:
+  ingressClassName: nginx
+  rules:
+    # [중요] 로컬 테스트를 위해 localhost로 설정
+    - host: localhost #나중에 본인의 DuckDNS 도메인으로 변경  {본인_duckdns_주소}.duckdns.org
+      http:
+        paths:
+          # 1. API 요청 (/api 로 시작하면 백엔드로)
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: tva-backend
+                port:
+                  number: 8000
+
+          # 2. Swagger 문서 (/docs 로 시작하면 백엔드로)
+          - path: /docs
+            pathType: Prefix
+            backend:
+              service:
+                name: tva-backend
+                port:
+                  number: 8000
+
+          # 3. Swagger 필수 설정 (/openapi.json 도 백엔드로)
+          - path: /openapi.json
+            pathType: Prefix
+            backend:
+              service:
+                name: tva-backend
+                port:
+                  number: 8000
+
+          # 4. 나머지 모든 요청(/)은 프론트엔드로 (가장 마지막에 배치)
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: tva-frontend
+                port:
+                  number: 80

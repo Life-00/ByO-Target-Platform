@@ -1,0 +1,73 @@
+# 1. Deployment: 백엔드 서버 관리
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tva-backend
+  namespace: tva
+spec:
+  replicas: 2 # 가용성을 위해 2개 실행 (하나는 죽어도 서비스 유지)
+
+  # 무중단 배포 전략 (Rolling Update)
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0 # 배포 중에도 기존 서버는 계속 살아있음
+      maxSurge: 2       # 새 버전을 2개까지 먼저 띄움
+
+  selector:
+    matchLabels:
+      app: tva-backend
+  template:
+    metadata:
+      labels:
+        app: tva-backend
+    spec:
+      imagePullSecrets:
+        - name: ghcr-secret
+      containers:
+        - name: backend
+          # [중요] 아래 {본인_깃허브_아이디_소문자}를 꼭 수정하세요!
+          image: ghcr.io/life-00/tva-backend:lite
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000 # FastAPI 기본 포트
+
+          # 리소스 제한 (AI 라이브러리 구동을 위해 메모리를 조금 넉넉히 잡음)
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+          # 헬스 체크 (서버가 준비되었는지 확인)
+          # main.py의 @app.get("/") 엔드포인트를 찌릅니다.
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+
+          # 환경 변수 주입 (ConfigMap 사용)
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secret
+
+---
+# 2. Service: 내부 통신용 주소
+apiVersion: v1
+kind: Service
+metadata:
+  name: tva-backend
+  namespace: tva
+spec:
+  selector:
+    app: tva-backend
+  ports:
+    - port: 8000       # 다른 서비스가 들어오는 포트
+      targetPort: 8000 # 실제 컨테이너 포트
+  type: ClusterIP
