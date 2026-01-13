@@ -439,6 +439,8 @@
   border-radius: 8px;
   margin-bottom: 8px;
   transition: all 0.2s;
+  cursor: pointer;
+  user-select: none;
 }
 
 .ref-item:hover {
@@ -461,10 +463,10 @@
 }
 
 .custom-checkbox {
-  cursor: pointer;
   width: 16px;
   height: 16px;
   accent-color: var(--bio-primary);
+  pointer-events: none;
 }
 
 .ref-info {
@@ -520,6 +522,7 @@
   align-items: center;
   justify-content: center;
   transition: color 0.2s;
+  cursor: pointer;
 }
 .ref-delete-btn:hover {
   color: #ef4444;

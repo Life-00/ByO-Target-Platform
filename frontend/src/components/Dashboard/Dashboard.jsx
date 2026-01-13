@@ -514,6 +514,7 @@ const Dashboard = ({ onLogout }) => {
               <div
                 key={ref.id}
                 className={`ref-item ${ref.checked ? "selected" : ""}`}
+                onClick={() => !ref.isLoading && toggleReference(ref.id)}
               >
                 {/* 로딩 중이면 스피너, 아니면 체크박스 */}
                 <div className="ref-checkbox-area">
@@ -528,7 +529,7 @@ const Dashboard = ({ onLogout }) => {
                       type="checkbox"
                       className="custom-checkbox"
                       checked={ref.checked}
-                      onChange={() => toggleReference(ref.id)}
+                      readOnly
                     />
                   )}
                 </div>
@@ -545,7 +546,10 @@ const Dashboard = ({ onLogout }) => {
 
                 <button
                   className="ref-delete-btn"
-                  onClick={() => removeReference(ref.id)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeReference(ref.id);
+                  }}
                 >
                   <X size={12} />
                 </button>
