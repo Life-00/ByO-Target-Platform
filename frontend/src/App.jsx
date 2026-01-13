@@ -2,7 +2,6 @@ import React, { useState, useEffect } from "react";
 import AuthContainer from "./components/Auth/AuthContainer";
 import Dashboard from "./components/Dashboard/Dashboard";
 import api from "./api";
-import "./App.css"; // CSS 파일이 import 되어 있어야 합니다.
 
 const App = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -45,11 +44,7 @@ const App = () => {
   };
 
   if (isLoading) {
-    return (
-      <div className="loading-container">
-        <div className="loading-spinner"></div>
-      </div>
-    );
+    return <div>세션을 확인 중입니다...</div>;
   }
 
   return (
