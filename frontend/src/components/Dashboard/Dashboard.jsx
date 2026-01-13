@@ -5,7 +5,6 @@ import {
   Microscope,
   MessageSquare,
   Plus,
-  Paperclip,
   Send,
   LogOut,
   X,
@@ -15,18 +14,17 @@ import {
   UploadCloud,
   Menu,
   ChevronLeft,
-  // [NEW] 추가된 아이콘
-  Database, // Extractor
-  Search, // Retrieval
-  PenTool, // Synthesizer
-  BookOpen, // Right Panel Toggle
-  CheckSquare, // Checkbox Icon
-  Layers, // General Chat
+  Database,
+  Search,
+  PenTool,
+  BookOpen,
+  CheckSquare,
+  Layers,
+  FileUp, // [NEW] 파일 업로드 아이콘
 } from "lucide-react";
 import api from "../../api";
 import "./Dashboard.css";
 
-// [NEW] 에이전트 설정 상수
 const AGENTS = [
   { id: "general", name: "General Chat", icon: Layers, color: "#64748b" },
   { id: "retrieval", name: "Paper Search", icon: Search, color: "#0ea5e9" },
@@ -40,23 +38,23 @@ const Dashboard = ({ onLogout }) => {
   const [currentSessionId, setCurrentSessionId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
-  const [pendingFiles, setPendingFiles] = useState([]);
   const [isWaiting, setIsWaiting] = useState(false);
-  const [dragActive, setDragActive] = useState(false);
 
-  // [NEW] 에이전트 및 참조 자료 상태
+  // [Mod] References 통합 관리 (서버 파일 + 로컬 업로드 대기 파일)
+  // 구조: { id: string|number, title: string, type: 'file'|'paper', checked: boolean, file?: File, isLocal?: boolean }
+  const [references, setReferences] = useState([]);
+
   const [activeAgent, setActiveAgent] = useState("general");
-  const [references, setReferences] = useState([]); // { id, title, type: 'file'|'paper', checked: boolean }
-  const [isRefPanelOpen, setIsRefPanelOpen] = useState(true); // 우측 패널 열림 상태
-
-  // 반응형 사이드바 상태
+  const [isRefPanelOpen, setIsRefPanelOpen] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth > 1024);
+  const [dragActive, setDragActive] = useState(false); // 드래그 상태 (우측 패널용)
 
   const scrollRef = useRef(null);
   const textareaRef = useRef(null);
+  const fileInputRef = useRef(null); // 우측 패널 파일 인풋용
   const isInitializing = useRef(false);
 
-  // --- 초기화 로직 ---
+  // --- 초기화 ---
   useEffect(() => {
     const init = async () => {
       if (isInitializing.current) return;
@@ -73,7 +71,7 @@ const Dashboard = ({ onLogout }) => {
     const handleResize = () => {
       if (window.innerWidth <= 1024) {
         setIsSidebarOpen(false);
-        setIsRefPanelOpen(false); // 작은 화면에서는 우측 패널도 닫음
+        setIsRefPanelOpen(false);
       } else {
         setIsSidebarOpen(true);
         setIsRefPanelOpen(true);
@@ -83,63 +81,73 @@ const Dashboard = ({ onLogout }) => {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // 스크롤 조정
   useEffect(() => {
     if (scrollRef.current)
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages, isWaiting, input]);
 
-  // --- 기능 핸들러 ---
+  // --- 핸들러 ---
 
-  // 세션 클릭
   const handleSelectSession = async (id) => {
     setCurrentSessionId(id);
     try {
-      // 1. 메시지 로드
       const msgRes = await api.get(`/chat/sessions/${id}/messages`);
       setMessages(msgRes.data);
-
-      // 2. [NEW] 해당 세션의 참조 자료(검색된 논문 등) 로드 (Backend API 구현 필요)
-      // const docRes = await api.get(`/chat/sessions/${id}/documents`);
+      // 서버에서 해당 세션의 문서 목록을 가져와 references에 세팅한다고 가정
+      // const docRes = await api.get(...)
       // setReferences(docRes.data);
-
-      // 임시: 세션을 바꾸면 참조 자료는 비운다고 가정 (혹은 서버에서 받아옴)
-      setReferences([]);
-
+      setReferences([]); // 임시 초기화
       if (window.innerWidth <= 768) setIsSidebarOpen(false);
     } catch (err) {
       console.error(err);
     }
   };
 
-  // New Chatting 클릭 -> [NEW] 모든 상태 초기화
   const handleResetChat = () => {
     setCurrentSessionId(null);
     setMessages([]);
-    setPendingFiles([]);
+    setReferences([]); // 파일 목록도 초기화
     setInput("");
-
-    // [NEW] 에이전트 및 참조 자료 초기화
     setActiveAgent("general");
-    setReferences([]);
-
     if (window.innerWidth <= 768) setIsSidebarOpen(false);
     if (textareaRef.current) textareaRef.current.focus();
   };
 
-  const handleDeleteSession = async (e, id) => {
-    e.stopPropagation();
-    if (!window.confirm("이 대화를 삭제하시겠습니까?")) return;
-    try {
-      await api.delete(`/chat/sessions/${id}`);
-      setSessions((prev) => prev.filter((s) => s.id !== id));
-      if (currentSessionId === id) handleResetChat();
-    } catch (err) {
-      alert("삭제 실패");
+  // [Mod] 파일 선택 핸들러 (중복 방지 & Reference로 추가)
+  const handleFileSelection = (files) => {
+    const newFiles = Array.from(files);
+
+    // 중복 체크
+    const uniqueFiles = newFiles.filter((file) => {
+      const isDuplicate = references.some((ref) => ref.title === file.name);
+      return !isDuplicate;
+    });
+
+    if (uniqueFiles.length === 0) {
+      alert("이미 추가된 파일입니다.");
+      return;
     }
+
+    const newRefs = uniqueFiles.map((file, index) => ({
+      id: `local-${Date.now()}-${index}`, // 임시 ID
+      title: file.name,
+      type: "file",
+      checked: true, // 업로드 시 기본 선택
+      isLocal: true, // 로컬 파일임을 표시
+      file: file, // 실제 파일 객체 저장
+    }));
+
+    setReferences((prev) => [...prev, ...newRefs]);
+
+    // 파일 추가 시 우측 패널이 닫혀있다면 열어줌
+    if (!isRefPanelOpen) setIsRefPanelOpen(true);
   };
 
-  // [NEW] 참조 자료 체크박스 토글
+  // 참조 자료 삭제 (취소)
+  const removeReference = (id) => {
+    setReferences((prev) => prev.filter((ref) => ref.id !== id));
+  };
+
   const toggleReference = (id) => {
     setReferences((prev) =>
       prev.map((ref) =>
@@ -148,20 +156,12 @@ const Dashboard = ({ onLogout }) => {
     );
   };
 
-  // 파일 핸들링
-  const handleFileSelection = (files) => {
-    setPendingFiles((prev) => [...prev, ...Array.from(files)]);
-  };
-
-  const removePendingFile = (index) => {
-    setPendingFiles((prev) => prev.filter((_, i) => i !== index));
-  };
-
+  // [Mod] 드래그 앤 드롭 (우측 사이드바 영역)
   const handleDrag = (e) => {
     e.preventDefault();
     e.stopPropagation();
     if (e.type === "dragenter" || e.type === "dragover") setDragActive(true);
-    else if (e.type === "dragleave") setDragActive(false);
+    else if (e.type === "dragleave" || e.type === "drop") setDragActive(false);
   };
 
   const handleDrop = (e) => {
@@ -181,13 +181,13 @@ const Dashboard = ({ onLogout }) => {
     }
   };
 
-  // 메시지 전송
   const handleSendMessage = async () => {
-    if ((!input.trim() && pendingFiles.length === 0) || isWaiting) return;
+    // 로컬 파일 중 체크된 것이 있는지 확인
+    const localFilesToSend = references.filter((r) => r.isLocal && r.checked);
+
+    if ((!input.trim() && localFilesToSend.length === 0) || isWaiting) return;
 
     const userContent = input.trim();
-
-    // 1. 화면 업데이트
     setMessages((prev) => [
       ...prev,
       { role: "user", content: userContent || "파일 분석 요청" },
@@ -198,17 +198,12 @@ const Dashboard = ({ onLogout }) => {
 
     try {
       let targetId = currentSessionId;
-
-      // 2. 세션 없으면 생성
       if (!targetId) {
         const createRes = await api.post("/chat/sessions");
         targetId = createRes.data.id;
-
         const newTitle = userContent
-          ? userContent.substring(0, 15) +
-            (userContent.length > 15 ? "..." : "")
+          ? userContent.substring(0, 15) + "..."
           : "새로운 대화";
-
         await api.patch(`/chat/sessions/${targetId}`, { title: newTitle });
         setSessions((prev) => [
           { ...createRes.data, title: newTitle },
@@ -217,49 +212,41 @@ const Dashboard = ({ onLogout }) => {
         setCurrentSessionId(targetId);
       }
 
-      // 3. 데이터 전송 준비
       const formData = new FormData();
       formData.append("message", userContent || "파일을 분석해줘.");
-
-      // [NEW] 에이전트 모드 및 선택된 참조 자료 ID 전송
       formData.append("agent_mode", activeAgent);
-      const selectedRefIds = references
-        .filter((r) => r.checked)
+
+      // 1. 이미 서버에 있는 파일 ID들 (isLocal이 아닌 것들)
+      const serverRefIds = references
+        .filter((r) => !r.isLocal && r.checked)
         .map((r) => r.id);
-      formData.append("context_ids", JSON.stringify(selectedRefIds));
+      formData.append("context_ids", JSON.stringify(serverRefIds));
 
-      pendingFiles.forEach((file) => formData.append("files", file));
+      // 2. 새로 업로드할 파일들 (isLocal인 것들)
+      localFilesToSend.forEach((ref) => {
+        formData.append("files", ref.file);
+      });
 
-      // 4. API 호출
       const res = await api.post(`/chat/sessions/${targetId}/chat`, formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
 
-      // 5. 응답 처리
       setMessages((prev) => [...prev, { role: "ai", content: res.data.reply }]);
 
-      // [NEW] Retrieval 결과가 있다면 참조 목록에 추가 (Backend 응답 구조에 따름)
-      if (res.data.found_documents) {
-        // 예: found_documents = [{id: 101, title: 'Paper A', type: 'paper'}]
-        const newDocs = res.data.found_documents.map((doc) => ({
-          ...doc,
-          checked: false,
-        }));
-        setReferences((prev) => [...prev, ...newDocs]);
-        // 검색 결과가 있으면 패널 자동 열기
-        if (!isRefPanelOpen) setIsRefPanelOpen(true);
-      }
-
-      // [NEW] 업로드한 파일도 참조 목록에 추가 (서버에서 ID 리턴받았다고 가정)
+      // 3. 전송 성공 후, 로컬 파일을 서버 파일로 상태 업데이트 (ID 교체 등)
+      // 예: 서버가 업로드된 파일들의 실제 ID를 uploaded_files로 돌려준다고 가정
       if (res.data.uploaded_files) {
-        const newFiles = res.data.uploaded_files.map((f) => ({
-          ...f,
-          checked: true,
-        })); // 업로드 파일은 기본 선택
-        setReferences((prev) => [...prev, ...newFiles]);
+        // 기존 로컬 파일 제거하고 서버 응답으로 대체하거나 상태 업데이트 로직 필요
+        // 여기서는 간단히 로컬 플래그 제거 형태로 가정
+        const updatedRefs = references.map((ref) => {
+          if (ref.isLocal && ref.checked) {
+            // 실제로는 서버에서 받은 ID로 교체해야 함
+            return { ...ref, isLocal: false };
+          }
+          return ref;
+        });
+        setReferences(updatedRefs);
       }
-
-      setPendingFiles([]);
     } catch (err) {
       console.error(err);
       alert("전송 중 오류가 발생했습니다.");
@@ -268,19 +255,11 @@ const Dashboard = ({ onLogout }) => {
     }
   };
 
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
-    }
-  };
-
   const activeAgentColor =
     AGENTS.find((a) => a.id === activeAgent)?.color || "#64748b";
 
   return (
     <div className="dashboard-container">
-      {/* 모바일 오버레이 */}
       {isSidebarOpen && window.innerWidth <= 768 && (
         <div
           className="mobile-overlay"
@@ -288,8 +267,9 @@ const Dashboard = ({ onLogout }) => {
         />
       )}
 
-      {/* --- 1. Left Sidebar (History) --- */}
+      {/* --- Left Sidebar --- */}
       <aside className={`sidebar ${!isSidebarOpen ? "closed" : ""}`}>
+        {/* (기존 코드 동일) */}
         <div className="sidebar-header">
           <div className="sidebar-title">
             <Microscope size={26} /> <span>TV-A</span>
@@ -301,11 +281,9 @@ const Dashboard = ({ onLogout }) => {
             <ChevronLeft size={24} />
           </button>
         </div>
-
         <button className="new-chat-btn" onClick={handleResetChat}>
           <Plus size={20} /> New Chatting
         </button>
-
         <div className="chat-list">
           <p className="chat-list-header">RESEARCH HISTORY</p>
           {sessions.map((s) => (
@@ -328,13 +306,12 @@ const Dashboard = ({ onLogout }) => {
             </div>
           ))}
         </div>
-
         <button onClick={onLogout} className="logout-btn">
           <LogOut size={18} /> Logout
         </button>
       </aside>
 
-      {/* --- 2. Main Chat Area --- */}
+      {/* --- Main Chat Area --- */}
       <main className="chat-main">
         {!isSidebarOpen && (
           <button
@@ -344,13 +321,10 @@ const Dashboard = ({ onLogout }) => {
             <Menu size={20} />
           </button>
         )}
-
-        {/* [NEW] 우측 패널 토글 버튼 (헤더 영역) */}
         {!isRefPanelOpen && (
           <button
             className="sidebar-closed-toggle right"
             onClick={() => setIsRefPanelOpen(true)}
-            title="Open Reference Panel"
           >
             <BookOpen size={20} />
           </button>
@@ -367,7 +341,6 @@ const Dashboard = ({ onLogout }) => {
               <p>원하는 에이전트를 선택하고 연구를 시작하세요.</p>
             </div>
           )}
-
           {messages.map((m, i) => (
             <div key={i} className={`msg-bubble ${m.role}`}>
               {m.role === "ai" ? (
@@ -382,22 +355,18 @@ const Dashboard = ({ onLogout }) => {
               )}
             </div>
           ))}
-
           {isWaiting && (
             <div className="msg-bubble ai loading-msg">
               <Loader2 className="animate-spin" size={16} />
-              <span style={{ color: activeAgentColor, fontWeight: 600 }}>
-                {AGENTS.find((a) => a.id === activeAgent).name}
-              </span>
-              가 분석 중입니다...
+              Analyzing...
             </div>
           )}
         </div>
 
-        {/* --- Input Area with Agent Selector --- */}
-        <div className="input-area-wrapper" onDragEnter={handleDrag}>
-          {/* [NEW] Agent Selector Tabs */}
-          <div className="agent-selector">
+        {/* --- Floating Input Area --- */}
+        <div className="floating-input-wrapper">
+          {/* Agent Selector (Floating top) */}
+          <div className="agent-selector-floating">
             {AGENTS.map((agent) => (
               <button
                 key={agent.id}
@@ -406,124 +375,112 @@ const Dashboard = ({ onLogout }) => {
                 }`}
                 onClick={() => setActiveAgent(agent.id)}
                 style={{
+                  "--agent-color": agent.color,
+                  color: activeAgent === agent.id ? agent.color : "#64748b",
                   borderColor:
                     activeAgent === agent.id ? agent.color : "transparent",
-                  color: activeAgent === agent.id ? agent.color : "#64748b",
                 }}
               >
-                <agent.icon size={16} />
+                <agent.icon size={14} />
                 <span>{agent.name}</span>
               </button>
             ))}
           </div>
 
-          {/* Drag Overlay */}
-          {dragActive && (
-            <div
-              className="drag-overlay"
-              onDragEnter={handleDrag}
-              onDragLeave={handleDrag}
-              onDragOver={handleDrag}
-              onDrop={handleDrop}
-            >
-              <div className="drag-content">
-                <UploadCloud size={48} className="drag-icon" />
-                <p>파일을 여기에 놓으세요</p>
-              </div>
-            </div>
-          )}
-
-          {/* File Preview */}
-          {pendingFiles.length > 0 && (
-            <div className="file-preview-container">
-              {pendingFiles.map((f, i) => (
-                <div key={i} className="file-icon-wrapper" title={f.name}>
-                  <div className="file-icon-box">
-                    <FileText size={22} />
-                    <button
-                      className="file-remove-badge"
-                      onClick={() => removePendingFile(i)}
-                    >
-                      <X size={10} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
           {/* Input Box */}
           <div
             className="input-box-container"
-            style={{ border: `1px solid ${activeAgentColor}40` }}
+            style={{ boxShadow: `0 4px 20px ${activeAgentColor}15` }}
           >
-            <label className="attach-btn-wrapper">
-              <Paperclip size={24} className="action-icon" />
-              <input
-                type="file"
-                multiple
-                hidden
-                onChange={(e) => handleFileSelection(e.target.files)}
-                disabled={isWaiting}
-              />
-            </label>
-
             <textarea
               ref={textareaRef}
               className="main-text-input"
               value={input}
               onChange={handleInputResize}
-              onKeyDown={handleKeyDown}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSendMessage();
+                }
+              }}
               placeholder={`${
                 AGENTS.find((a) => a.id === activeAgent).name
               }에게 질문하기...`}
               disabled={isWaiting}
               rows={1}
             />
-
             <button
               className="icon-send-btn"
               onClick={handleSendMessage}
               disabled={isWaiting}
             >
               {isWaiting ? (
-                <Loader2 className="animate-spin" size={24} />
+                <Loader2 className="animate-spin" size={20} />
               ) : (
-                <Send
-                  size={24}
-                  className="action-icon"
-                  style={{ color: activeAgentColor }}
-                />
+                <Send size={20} style={{ color: activeAgentColor }} />
               )}
             </button>
           </div>
         </div>
       </main>
 
-      {/* --- 3. [NEW] Right Sidebar (Reference Manager) --- */}
-      <aside className={`right-sidebar ${!isRefPanelOpen ? "closed" : ""}`}>
+      {/* --- Right Sidebar (Reference & Upload) --- */}
+      <aside
+        className={`right-sidebar ${!isRefPanelOpen ? "closed" : ""} ${
+          dragActive ? "drag-active" : ""
+        }`}
+        onDragEnter={handleDrag}
+        onDragLeave={handleDrag}
+        onDragOver={handleDrag}
+        onDrop={handleDrop}
+      >
         <div className="right-sidebar-header">
           <div className="header-left">
             <BookOpen size={18} />
             <h3>References</h3>
-            <span className="badge">{references.length}</span>
           </div>
-          <button
-            className="toggle-btn text-dark"
-            onClick={() => setIsRefPanelOpen(false)}
-          >
-            <X size={18} />
-          </button>
+
+          <div className="header-actions">
+            {/* [Mod] 업로드 버튼을 여기로 이동 */}
+            <button
+              className="icon-btn"
+              onClick={() => fileInputRef.current?.click()}
+              title="Upload Files"
+            >
+              <FileUp size={18} />
+            </button>
+            <input
+              type="file"
+              multiple
+              hidden
+              ref={fileInputRef}
+              onChange={(e) => handleFileSelection(e.target.files)}
+            />
+            <button
+              className="icon-btn"
+              onClick={() => setIsRefPanelOpen(false)}
+            >
+              <X size={18} />
+            </button>
+          </div>
         </div>
+
+        {/* 드래그 오버레이 메시지 */}
+        {dragActive && (
+          <div className="sidebar-drag-overlay">
+            <UploadCloud size={40} />
+            <p>Drop files to add references</p>
+          </div>
+        )}
 
         <div className="reference-list">
           {references.length === 0 ? (
             <div className="empty-ref">
               <Search size={32} />
               <p>
-                검색된 논문이나
+                파일을 드래그하거나
                 <br />
-                업로드된 파일이 없습니다.
+                업로드 버튼을 누르세요.
               </p>
             </div>
           ) : (
@@ -540,11 +497,23 @@ const Dashboard = ({ onLogout }) => {
                   />
                 </div>
                 <div className="ref-info">
-                  <span className={`ref-type ${ref.type}`}>{ref.type}</span>
+                  <div className="ref-meta">
+                    <span className={`ref-type ${ref.type}`}>{ref.type}</span>
+                    {ref.isLocal && (
+                      <span className="ref-badge-local">Ready</span>
+                    )}
+                  </div>
                   <p className="ref-title" title={ref.title}>
                     {ref.title}
                   </p>
                 </div>
+                {/* 삭제(취소) 버튼 */}
+                <button
+                  className="ref-delete-btn"
+                  onClick={() => removeReference(ref.id)}
+                >
+                  <X size={12} />
+                </button>
               </div>
             ))
           )}
@@ -556,7 +525,9 @@ const Dashboard = ({ onLogout }) => {
             <span>Selected: {references.filter((r) => r.checked).length}</span>
           </div>
           <p className="help-text">
-            선택한 자료가 다음 답변 생성에 사용됩니다.
+            선택된 자료는 Agent에게
+            <br />
+            컨텍스트로 제공됩니다.
           </p>
         </div>
       </aside>
