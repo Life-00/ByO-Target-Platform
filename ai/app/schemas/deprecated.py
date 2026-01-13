@@ -1,7 +1,9 @@
-# Validator Agent의 결과
+# schemas/deprecated.py
+# 나중에 필요해질 수도 있으니 남겨둠
+from __future__ import annotations
 
 from pydantic import BaseModel
-from typing import List, Dict
+from typing import List, Dict, Literal
 
 
 class EvidenceItem(BaseModel):
@@ -19,13 +21,9 @@ class RiskSignal(BaseModel):
 class ValidatedClaim(BaseModel):
     claim_id: str
     normalized_claim: str
-
     evidence: List[EvidenceItem]
-
-    evidence_summary: Dict[str, int]  # {"in_vitro": 3, "in_vivo": 1, "clinical": 0}
-
-    consistency: str  # consistent | conflicting | insufficient
-
+    evidence_summary: Dict[str, int]
+    consistency: Literal["consistent", "conflicting", "insufficient"]
     risk_signals: List[RiskSignal] = []
 
 
