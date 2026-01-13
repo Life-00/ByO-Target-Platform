@@ -1,0 +1,197 @@
+import os
+import uuid
+import shutil
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
+from fastapi.responses import FileResponse
+from sqlalchemy.orm import Session
+
+from app.core.database import get_db
+from app.api.deps import get_current_user_email
+
+from app.models.pipeline import UploadedFile
+from app.schemas.files import FileUploadResponse, UploadedFileResponse
+
+
+router = APIRouter(prefix="/sessions", tags=["files"])
+
+# 업로드 저장 디렉토리 (컨테이너/로컬 공통)
+UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+# 허용 확장자(필요하면 늘려)
+ALLOWED_EXTS = {
+    ".pdf", ".txt", ".md",
+    ".docx", ".pptx",
+    ".csv", ".xlsx",
+    ".png", ".jpg", ".jpeg",
+}
+
+MAX_FILE_SIZE_MB = 50
+
+
+def _safe_ext(filename: str) -> str:
+    _, ext = os.path.splitext(filename)
+    return ext.lower()
+
+
+def _build_storage_path(session_id: str, file_id: uuid.UUID, original_name: str) -> str:
+    # 파일명이 이상해도 안전한 저장명을 쓰는 게 좋음
+    ext = _safe_ext(original_name)
+    safe_name = f"{session_id}_{file_id.hex}{ext}"
+    return os.path.join(UPLOAD_DIR, safe_name)
+
+
+@router.post("/{session_id}/files", response_model=List[FileUploadResponse])
+async def upload_files(
+    session_id: str,
+    files: Optional[List[UploadFile]] = File(None),
+    email: str = Depends(get_current_user_email),
+    db: Session = Depends(get_db),
+):
+    """
+    ✅ 업로드는 저장 + DB 기록만
+    ❌ 여기서 벡터화 금지 (extract에서만)
+    """
+    if not files:
+        return []
+
+    results: List[FileUploadResponse] = []
+
+    for f in files:
+        if not f.filename:
+            results.append({"file_id": "", "original_name": "", "status": "failed"})
+            continue
+
+        ext = _safe_ext(f.filename)
+        if ext and ALLOWED_EXTS and ext not in ALLOWED_EXTS:
+            results.append({"file_id": "", "original_name": f.filename, "status": "rejected"})
+            continue
+
+        file_id = uuid.uuid4()
+        save_path = _build_storage_path(session_id, file_id, f.filename)
+
+        # 파일 크기 체크(스트리밍 방식)
+        total = 0
+        try:
+            with open(save_path, "wb") as buffer:
+                while True:
+                    chunk = await f.read(1024 * 1024)  # 1MB
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if total > MAX_FILE_SIZE_MB * 1024 * 1024:
+                        raise HTTPException(status_code=413, detail=f"파일이 너무 큽니다. (최대 {MAX_FILE_SIZE_MB}MB)")
+                    buffer.write(chunk)
+        except Exception as e:
+            # 저장 실패 시 파일 제거
+            try:
+                if os.path.exists(save_path):
+                    os.remove(save_path)
+            except Exception:
+                pass
+
+            results.append({"file_id": "", "original_name": f.filename, "status": "failed"})
+            continue
+        finally:
+            try:
+                await f.close()
+            except Exception:
+                pass
+
+        rec = UploadedFile(
+            id=file_id,
+            session_id=session_id,
+            user_email=email,
+            original_name=f.filename,
+            storage_path=save_path,
+            mime_type=f.content_type,
+            size_bytes=total,
+            status="uploaded",
+        )
+        db.add(rec)
+        db.commit()
+
+        results.append({"file_id": str(file_id), "original_name": f.filename, "status": "uploaded"})
+
+    return results
+
+
+@router.get("/{session_id}/files", response_model=List[UploadedFileResponse])
+async def list_files(
+    session_id: str,
+    email: str = Depends(get_current_user_email),
+    db: Session = Depends(get_db),
+):
+    rows = (
+        db.query(UploadedFile)
+        .filter(UploadedFile.session_id == session_id, UploadedFile.user_email == email)
+        .order_by(UploadedFile.created_at.desc())
+        .all()
+    )
+    return rows
+
+
+@router.delete("/{session_id}/files/{file_id}")
+async def delete_file(
+    session_id: str,
+    file_id: str,
+    email: str = Depends(get_current_user_email),
+    db: Session = Depends(get_db),
+):
+    row = (
+        db.query(UploadedFile)
+        .filter(
+            UploadedFile.id == file_id,
+            UploadedFile.session_id == session_id,
+            UploadedFile.user_email == email,
+        )
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다.")
+
+    # 실제 파일 삭제
+    try:
+        if row.storage_path and os.path.exists(row.storage_path):
+            os.remove(row.storage_path)
+    except Exception as e:
+        # 파일 삭제 실패는 DB 삭제를 막을지 정책 필요
+        # MVP에서는 DB는 삭제하고 경고만 남김
+        pass
+
+    db.delete(row)
+    db.commit()
+
+    return {"message": "deleted", "file_id": file_id}
+
+
+@router.get("/{session_id}/files/{file_id}/download")
+async def download_file(
+    session_id: str,
+    file_id: str,
+    email: str = Depends(get_current_user_email),
+    db: Session = Depends(get_db),
+):
+    row = (
+        db.query(UploadedFile)
+        .filter(
+            UploadedFile.id == file_id,
+            UploadedFile.session_id == session_id,
+            UploadedFile.user_email == email,
+        )
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다.")
+
+    if not row.storage_path or not os.path.exists(row.storage_path):
+        raise HTTPException(status_code=404, detail="서버에 파일이 존재하지 않습니다.")
+
+    # 원본 파일명으로 다운로드
+    return FileResponse(
+        path=row.storage_path,
+        filename=row.original_name,
+        media_type=row.mime_type or "application/octet-stream",
+    )

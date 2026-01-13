@@ -1,18 +1,17 @@
-from pydantic import BaseModel, EmailStr
-from typing import Optional
+from sqlalchemy import Column, Integer, String, DateTime, func
+from app.models.base import Base
 
-class UserBase(BaseModel):
-    email: EmailStr
-    name: Optional[str] = None
 
-class UserCreate(UserBase):
-    password: str
+class User(Base):
+    __tablename__ = "users"
 
-class UserResponse(UserBase):
-    id: int
-    class Config:
-        from_attributes = True
+    id = Column(Integer, primary_key=True, index=True)
 
-class Token(BaseModel):
-    access_token: str
-    token_type: str
+    email = Column(String, unique=True, index=True, nullable=False)
+    name = Column(String, nullable=False)
+    hashed_password = Column(String, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    def __repr__(self):
+        return f"<User(email={self.email}, name={self.name})>"

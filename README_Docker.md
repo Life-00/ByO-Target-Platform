@@ -1,8 +1,3 @@
-<<<<<<< HEAD
-Git Action Secret 필요 변수
-
-=======
->>>>>>> fecae63142044c787c88c577cbb475c40bcefa37
 CORS_ORIGINS
 DB_NAME
 DB_PASSWORD

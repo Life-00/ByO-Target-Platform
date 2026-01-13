@@ -30,11 +30,6 @@ class Settings(BaseSettings):
     CHROMA_HOST: str = "localhost"
     CHROMA_PORT: int = 8000
 
-    # ---------- CORS ------------
-    CORS_ORIGINS: str = "http://localhost:5173,http://localhost:80,http://localhost"
-
-    AUTO_CREATE_TABLES: bool = True
-
     class Config:
         env_file = ".env"
         extra = "ignore"
