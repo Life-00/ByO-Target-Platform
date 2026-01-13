@@ -52,21 +52,25 @@ ai/
 │  ├─ config/
 │  │  └─ env.py                       # api key 설정
 │  │
-│  ├─ tests/
+│  ├─ tests/                          # 테스트 진행
 │  │  ├─ conftest..py
-│  │  └─ agents/                      # 각 agent 별로 테스트 진행
-│  │      ├─ test_retriever_agent.py 
-│  │      ├─ test_dialogue_flow.py
-│  │      ├─ test_orchestrator_pipeline.py
-│  │      ├─ test_extractor_agent.py
-│  │      ├─ test_validator_agent.py
-│  │      └─ test_synthesizer_agent.py
-│  │ 
+│  │  ├─ agents/                      # 각 agent 별로 테스트 진행
+│  │  │   ├─ test_retriever_agent.py 
+│  │  │   ├─ test_dialogue_flow.py
+│  │  │   ├─ test_orchestrator_pipeline.py
+│  │  │   ├─ test_extractor_agent.py
+│  │  │   ├─ test_validator_agent.py
+│  │  │   └─ test_synthesizer_agent.py
+│  │  ├─ chromadb/
+│  │  │   └─ test_chromadb_ingestion.py 
+│  │  │
+│  │  └─ llm/
+│  │      └─ test_dialogue_llm.py
 │  │                    
 │  └─ main.py                         # 애플리케이션 main (run 함수)
 │
 ├─ main.py                            # 실행용 entrypoint (wrapper)
-├─ .env				                  # api key 등록 (형식은 .env_example 확인)
+├─ .env			  # api key 등록 (형식은 .env_example 확인)
 ├─ .gitignore
 ├─ pyproject.toml
 ├─ uv.lock
@@ -85,6 +89,7 @@ ai/
 * 논문 파싱 ❌ 
 * 사실 판단 ❌
 ### 특징 :
+* LLM 추가
 * 중앙 진입점 
 * LangGraph 기반 상태 관리 
 * 필요 시 사용자에게 재질문 가능
@@ -115,6 +120,7 @@ ai/
 * 논문 abstract로부터 사실(Fact) 추출 
 * 문장 단위 정보 구조화
 ### 특징 :
+* LLM 추가
 * LangGraph 기반
 * 현재는 rule-based, LLM으로 확장 예정
 * ### 입력 : PaperCorpus
@@ -126,6 +132,7 @@ ai/
 * 근거 수 계산
 * 상충 여부 표시
 ### 특징 :
+* LLM 추가
 * LangGraph 기반
 * 판단 Agent ❌
 * 집계/정리 전용
@@ -136,6 +143,7 @@ ai/
 * 핵심 주장 요약
 * 근거 수준 정리
 ### 특징 :
+* LLM 추가
 * LangGraph 기반
 * 현재는 rule-based, LLM으로 확장 예정
 
