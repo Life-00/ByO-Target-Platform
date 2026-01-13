@@ -69,29 +69,47 @@ async def session_chat(
     print(f"\n[{time.strftime('%H:%M:%S')}] [CHAT-REQUEST] Session: {session_id}")
     email = auth_service.verify_token(token)
 
-    # 1. 파일이 있으면 분석 및 벡터 DB 저장
+    # 1. 파일이 있으면 분석 및 벡터 DB 저장 (RAG) - [기존 코드 유지]
     if files:
         for file in files:
-            file_uuid = uuid.uuid4().hex[:8] # 8자리 고유값 추가
+            file_uuid = uuid.uuid4().hex[:8]
             file_name = f"{session_id}_{file_uuid}_{file.filename}"
             file_path = os.path.join(UPLOAD_DIR, file_name)
-            # 파일 저장
             with open(file_path, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
-            
-            # 🔥 RAG 서비스 호출: 문서 분석 및 유저/세션별 격리 저장
             print(f"[{time.strftime('%H:%M:%S')}] [RAG] Processing file: {file.filename}")
             await rag_service.process_and_store(file_path, session_id, email)
 
-    # 2. 유저 메시지 DB 저장 (이력 관리용)
-    db.add(Message(session_id=session_id, user_email=email, role="user", content=message))
+    # 2. 유저 메시지 DB 저장 (현재 메시지 저장) - [기존 코드 유지]
+    current_msg = Message(session_id=session_id, user_email=email, role="user", content=message)
+    db.add(current_msg)
+    db.commit() # DB에 저장 확정 (그래야 아래에서 조회됨)
     
-    # 3. Solar-Pro 답변 생성 (RAG 컨텍스트 포함)
-    reply = await solar_service.get_chat_response(email, message, session_id=session_id)
-    # 추후 에이전트 개발 완료 시
-    # reply = await agent_service.process_request(email, session_id, message)
+    # [수정] 대화 맥락(Context) 불러오기
+    # 최근 20개의 대화를 가져옵니다 (토큰 제한 고려).
+    history_records = db.query(Message).filter(
+        Message.session_id == session_id
+    ).order_by(Message.created_at.desc()).limit(20).all()
     
-    # 4. AI 답변 DB 저장
+    # 시간순 정렬 (오래된 것 -> 최신 것)
+    history_records.reverse()
+    
+    # 서비스에 넘길 형태로 변환 (List[dict])
+    chat_history = [
+        {"role": msg.role, "content": msg.content} 
+        for msg in history_records
+    ]
+
+    # 3. Solar-Pro 답변 생성 (history 인자 추가)
+    # 기존: reply = await solar_service.get_chat_response(email, message, session_id=session_id)
+    reply = await solar_service.get_chat_response(
+        user_email=email, 
+        message=message, 
+        session_id=session_id,
+        history=chat_history 
+    )
+    
+    # 4. AI 답변 DB 저장 - [기존 코드 유지]
     db.add(Message(session_id=session_id, user_email=email, role="ai", content=reply))
     db.commit()
     
