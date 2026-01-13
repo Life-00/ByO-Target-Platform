@@ -9,7 +9,7 @@
   position: relative;
 }
 
-/* 사이드바 스타일 수정: 너비 트랜지션 및 잔상 제거 */
+/* 사이드바 스타일 */
 .sidebar {
   width: 260px;
   background-color: var(--bio-secondary);
@@ -17,19 +17,17 @@
   display: flex;
   flex-direction: column;
   padding: 20px;
-
-  /* 애니메이션 & 숨김 처리 핵심 */
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  overflow: hidden; /* 내용이 넘치면 숨김 (잔상 제거) */
-  white-space: nowrap; /* 텍스트 줄바꿈 방지 (잔상 제거) */
-  flex-shrink: 0; /* 채팅창에 밀리지 않음 */
+  overflow: hidden;
+  white-space: nowrap;
+  flex-shrink: 0;
   z-index: 50;
 }
 
 /* 사이드바가 닫혔을 때 */
 .sidebar.closed {
   width: 0px;
-  padding: 0px; /* 패딩을 없애야 공간을 차지하지 않음 */
+  padding: 0px;
   opacity: 0;
   pointer-events: none;
 }
@@ -41,7 +39,7 @@
   position: relative;
   background: white;
   width: 100%;
-  min-width: 0; /* Flexbox 내부 overflow 버그 방지 */
+  min-width: 0;
 }
 
 /* =========================================
@@ -50,9 +48,9 @@
 .sidebar-header {
   display: flex;
   align-items: center;
-  justify-content: space-between; /* 로고와 닫기 버튼 양끝 배치 */
+  justify-content: space-between;
   margin-bottom: 30px;
-  min-height: 40px; /* 찌그러짐 방지 */
+  min-height: 40px;
 }
 
 .sidebar-title {
@@ -135,7 +133,6 @@
 .chat-list {
   flex: 1;
   overflow-y: auto;
-  /* 스크롤바 커스텀 (선택 사항) */
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
 }
@@ -166,7 +163,7 @@
   align-items: center;
   gap: 16px;
   flex: 1;
-  overflow: hidden; /* 제목 길면 자르기 */
+  overflow: hidden;
 }
 
 .chat-item:hover {
@@ -215,7 +212,7 @@
 }
 
 /* =========================================
-   3. 채팅 메시지 영역
+   3. 채팅 메시지 영역 (수정됨: 텍스트 줄바꿈 Fix)
    ========================================= */
 .message-container {
   flex: 1;
@@ -249,15 +246,18 @@
   }
 }
 
+/* 공통 말풍선 스타일 */
 .msg-bubble {
   max-width: 70%;
   padding: 12px 16px;
   border-radius: 18px;
   font-size: 15px;
   line-height: 1.6;
-  word-break: break-word;
-  overflow-wrap: break-word;
-  overflow: hidden;
+
+  /* 🔥 핵심 수정: 텍스트 줄바꿈 강제 적용 */
+  word-break: break-word; /* 단어가 길면 쪼개서 줄바꿈 */
+  overflow-wrap: break-word; /* 넘치는 텍스트 줄바꿈 표준 속성 */
+  white-space: pre-wrap; /* 사용자의 줄바꿈(엔터) 인식 및 자동 줄바꿈 */
 }
 
 .msg-bubble.user {
@@ -286,8 +286,6 @@
 /* =========================================
    4. 입력 영역 & 드래그 오버레이
    ========================================= */
-
-/*  오버레이 위치 기준점 설정 */
 .input-area-wrapper {
   position: relative;
   padding: 20px 30px;
@@ -295,7 +293,6 @@
   background-color: white;
 }
 
-/*드래그 앤 드롭 오버레이 스타일 (입력창 영역에만 표시) */
 .drag-overlay {
   position: absolute;
   top: 0;
@@ -328,17 +325,9 @@
   margin: 0;
 }
 
-@keyframes bounce {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-8px);
-  }
-}
-
-/* 5. 파일 프리뷰 & 입력창 컴포넌트 */
+/* =========================================
+   5. 파일 프리뷰 & 입력창 컴포넌트
+   ========================================= */
 
 /* 파일 아이콘 프리뷰 컨테이너 */
 .file-preview-container {
@@ -346,6 +335,7 @@
   flex-wrap: wrap;
   gap: 12px;
   margin-bottom: 12px;
+  padding: 0 5px;
 }
 
 .file-icon-wrapper {
@@ -366,6 +356,14 @@
   transition: all 0.2s ease;
 }
 
+.file-icon-wrapper:hover .file-icon-box {
+  background: white;
+  border-color: var(--bio-primary);
+  color: var(--bio-primary);
+  transform: translateY(-3px);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+}
+
 .file-remove-badge {
   position: absolute;
   top: -6px;
@@ -381,20 +379,17 @@
   justify-content: center;
   cursor: pointer;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  transition: transform 0.2s;
 }
 
 .file-remove-badge:hover {
   transform: scale(1.2);
 }
 
-/* ---------------------------------------------------
-   입력창 개선 (Textarea Auto-resize 적용)
-   --------------------------------------------------- */
-
 /* 입력창 컨테이너 */
 .input-box-container {
   display: flex;
-  align-items: flex-end; /* 텍스트가 여러 줄일 때 아이콘은 바닥에 고정 */
+  align-items: flex-end; /* 텍스트가 길어지면 아이콘은 아래쪽에 고정 */
   background: #f1f5f9;
   padding: 12px 18px;
   border-radius: 12px;
@@ -409,14 +404,14 @@
   outline: none;
   font-size: 16px;
   line-height: 1.5;
-  resize: none; /* 사용자 임의 크기 조절 핸들 제거 */
-  max-height: 150px; /* 약 6줄 넘어가면 스크롤 생김 */
-  overflow-y: auto; /* 내용 넘치면 스크롤 */
-  padding: 0; /* 기본 패딩 제거 */
+  resize: none;
+  max-height: 150px;
+  overflow-y: auto;
+  padding: 0;
   font-family: inherit;
 }
 
-/* 버튼/아이콘 공통 스타일 */
+/* 아이콘 공통 */
 .action-icon {
   color: #64748b;
   cursor: pointer;
@@ -428,13 +423,12 @@
   transform: scale(1.1);
 }
 
-/* 첨부 버튼 & 전송 버튼 위치 보정 */
 .attach-btn-wrapper,
 .icon-send-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding-bottom: 4px; /* 입력창 하단 텍스트 라인과 높이 맞춤 */
+  padding-bottom: 4px;
   cursor: pointer;
 }
 
@@ -463,8 +457,15 @@
 }
 
 /* =========================================
-   6. Markdown 결과 스타일링 (AI 답변용 - 신규 추가)
+   6. Markdown 결과 스타일링 (AI 답변용 - 통합됨)
    ========================================= */
+
+/* 마크다운 전체 컨테이너 제한 */
+.markdown-body {
+  width: 100%;
+  box-sizing: border-box;
+  overflow-wrap: break-word; /* URL 등 긴 텍스트 줄바꿈 */
+}
 
 /* 기본 문단 */
 .markdown-body p {
@@ -505,20 +506,24 @@
   font-size: 1.1em;
 }
 
-/* 코드 블록 (어두운 테마) */
+/* 🔥 코드 블록 (스크롤 처리 및 넘침 방지) */
 .markdown-body pre {
   background: #2d3748;
   color: #f8fafc;
   padding: 12px 16px;
   border-radius: 8px;
-  overflow-x: auto;
   margin: 12px 0;
   font-size: 0.9em;
   font-family: "Consolas", "Monaco", monospace;
   line-height: 1.5;
+
+  /* 가로 스크롤 설정 */
+  overflow-x: auto;
+  max-width: 100%;
+  white-space: pre; /* 코드는 줄바꿈 없이 스크롤 */
 }
 
-/* 인라인 코드 (`code`) */
+/* 인라인 코드 */
 .markdown-body code {
   background: rgba(15, 118, 110, 0.1);
   color: #0f766e;
@@ -528,8 +533,6 @@
   font-size: 0.9em;
   font-weight: 600;
 }
-
-/* pre 안의 code는 배경색 중첩 방지 */
 .markdown-body pre code {
   background: transparent;
   color: inherit;
@@ -537,21 +540,18 @@
   font-weight: normal;
 }
 
-/* 강조 구문 */
+/* 강조 & 인용 */
 .markdown-body strong {
   color: #0f766e;
   font-weight: 700;
 }
-
-/* 인용문 */
 .markdown-body blockquote {
   border-left: 4px solid #cbd5e1;
   margin: 12px 0;
-  padding-left: 16px;
+  padding: 8px 16px;
   color: #64748b;
   font-style: italic;
   background: #f8fafc;
-  padding: 8px 16px;
   border-radius: 0 4px 4px 0;
 }
 
@@ -562,9 +562,9 @@
   margin: 20px 0;
 }
 
-/* 테이블 스타일 */
-markdown-body table {
-  display: block;
+/* 🔥 테이블 (스크롤 처리) */
+.markdown-body table {
+  display: block; /* 테이블이 너무 크면 스크롤 */
   overflow-x: auto;
   width: 100%;
   border-collapse: collapse;
@@ -578,108 +578,15 @@ markdown-body table {
   padding: 8px 12px;
   text-align: left;
 }
-
 .markdown-body th {
   background-color: #f1f5f9;
   font-weight: 600;
   color: #334155;
 }
 
-/* =========================================
-   6. Markdown 결과 스타일링 (AI 답변용)
-   ========================================= */
-
-.markdown-body {
-  width: 100%; /* 말풍선 너비에 맞춤 */
-  box-sizing: border-box;
-  overflow-wrap: break-word; /* 긴 텍스트 줄바꿈 */
-}
-
+/* 이미지 제한 */
 .markdown-body img {
   max-width: 100%;
   height: auto;
   border-radius: 8px;
-}
-
-.markdown-body p {
-  margin: 0 0 10px 0;
-}
-
-.markdown-body p:last-child {
-  margin-bottom: 0;
-}
-
-.markdown-body ul,
-.markdown-body ol {
-  margin: 8px 0 12px 20px;
-  padding: 0;
-}
-
-.markdown-body li {
-  margin-bottom: 4px;
-}
-
-.markdown-body h1,
-.markdown-body h2,
-.markdown-body h3 {
-  font-weight: 700;
-  margin: 16px 0 8px 0;
-  line-height: 1.4;
-}
-
-.markdown-body h1 {
-  font-size: 1.4em;
-}
-.markdown-body h2 {
-  font-size: 1.25em;
-}
-.markdown-body h3 {
-  font-size: 1.1em;
-}
-
-/* 코드 블록 스타일 */
-.markdown-body pre {
-  background: #2d3748;
-  color: #f8fafc;
-  padding: 12px 16px;
-  border-radius: 8px;
-
-  overflow-x: auto;
-  max-width: 100%;
-
-  margin: 12px 0;
-  font-size: 0.9em;
-  font-family: "Consolas", "Monaco", monospace;
-  line-height: 1.5;
-  white-space: pre;
-}
-
-.markdown-body code {
-  background: rgba(0, 0, 0, 0.1);
-  padding: 2px 4px;
-  border-radius: 4px;
-  font-family: "Consolas", "Monaco", monospace;
-  font-size: 0.9em;
-}
-
-.markdown-body pre code {
-  background: transparent; /* pre 안의 code는 배경 투명하게 */
-  padding: 0;
-  color: inherit;
-}
-
-/* 인용문 스타일 */
-.markdown-body blockquote {
-  border-left: 4px solid var(--bio-primary);
-  margin: 10px 0;
-  padding-left: 12px;
-  color: #64748b;
-  font-style: italic;
-}
-
-/* 구분선 */
-.markdown-body hr {
-  border: none;
-  border-top: 1px solid #e2e8f0;
-  margin: 16px 0;
 }
