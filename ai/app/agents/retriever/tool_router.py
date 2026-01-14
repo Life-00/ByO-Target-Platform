@@ -11,12 +11,24 @@ from app.agents.retriever.pubmed_fetcher import PubMedFetcher
 from app.agents.retriever.semantic_ranker import SemanticRanker
 from app.agents.retriever.paper_filter import PaperFilter
 
-TOOL_SYSTEM = """You are a retrieval planner. Pick and chain the provided tools.
-- Use expand_query before searching PMIDs.
-- Collect PMIDs, then fetch_and_parse.
-- Use rank_semantic to sort papers.
-- Use llm_filter optionally; skip if enough precision from ranking.
-- Call finalize when you have the final PaperCorpus.
+TOOL_SYSTEM = """You are a retrieval planner that orchestrates tools.
+
+Hard rules:
+- expand_query MUST be called exactly once and before any search.
+- search_pmids MUST be called before fetch_and_parse.
+- fetch_and_parse MUST be called before rank_semantic.
+- finalize MUST be called exactly once to terminate execution.
+- Do NOT repeat the same tool call with identical arguments.
+
+Strategy:
+- Use rank_semantic to achieve sufficient precision when possible.
+- Call llm_filter ONLY if ranking precision is insufficient.
+- If no further improvement is possible, call finalize with the best available papers.
+
+You do NOT answer biomedical questions.
+You ONLY decide which tool to call next.
+
+Return control by calling tools until finalize is called.
 """
 
 
@@ -65,7 +77,11 @@ class RetrieverToolRouter:
             "expand_query": ToolSpec(
                 name="expand_query",
                 description="Expand the user query into multiple PubMed terms.",
-                parameters={"type": "object", "properties": {}},
+                parameters={
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": False
+                },
                 handler=self._handle_expand,
             ),
             "search_pmids": ToolSpec(
@@ -74,13 +90,14 @@ class RetrieverToolRouter:
                 parameters={
                     "type": "object",
                     "properties": {"retmax": {"type": "integer", "minimum": 1}},
+                    "additionalProperties": False
                 },
                 handler=self._handle_search_pmids,
             ),
             "fetch_and_parse": ToolSpec(
                 name="fetch_and_parse",
                 description="Fetch MEDLINE records for PMIDs and parse to Paper objects.",
-                parameters={"type": "object", "properties": {}},
+                parameters={"type": "object", "properties": {}, "additionalProperties": False},
                 handler=self._handle_fetch,
             ),
             "rank_semantic": ToolSpec(
@@ -89,31 +106,39 @@ class RetrieverToolRouter:
                 parameters={
                     "type": "object",
                     "properties": {"top_n": {"type": "integer", "minimum": 1}},
+                    "additionalProperties": False
                 },
                 handler=self._handle_rank,
             ),
             "llm_filter": ToolSpec(
                 name="llm_filter",
                 description="LLM-based paper filtering. Optional; use when precision is needed.",
-                parameters={"type": "object", "properties": {}},
+                parameters={"type": "object", "properties": {},
+                            "additionalProperties": False},
                 handler=self._handle_filter,
             ),
             "finalize": ToolSpec(
                 name="finalize",
                 description="Return the final PaperCorpus once ranking/filtering is done.",
-                parameters={"type": "object", "properties": {}},
+                parameters={"type": "object", "properties": {},
+                            "additionalProperties": False},
                 handler=self._handle_finalize,
             ),
         }
 
     def run(self, uq: UserQuery) -> PaperCorpus:
-        ctx: Dict[str, Any] = {"uq": uq}
+        ctx = {"uq": uq, "artifacts": {}, "_called": set()}
         messages = [
             {"role": "system", "content": TOOL_SYSTEM},
             {"role": "user", "content": json.dumps(uq.model_dump(), ensure_ascii=False)},
         ]
 
-        while True:
+        # 무한 루프 방지
+        max_steps = 20
+        no_tool_limit = 3
+        no_tool_count = 0
+
+        for _step in range(max_steps):
             resp = llm_client.chat.completions.create(
                 model=DEFAULT_LLM_MODEL,
                 messages=messages,
@@ -122,15 +147,39 @@ class RetrieverToolRouter:
                 temperature=0,
             )
             msg = resp.choices[0].message
+
             if not msg.tool_calls:
-                # No tool call, loop until we have a finalize
+                no_tool_count += 1
                 messages.append({"role": "assistant", "content": msg.content or ""})
+                if no_tool_count >= no_tool_limit:
+                    raise RuntimeError("Planner produced no tool calls repeatedly (stuck).")
                 continue
+
+            no_tool_count = 0
+
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": msg.content or "",
+                    "tool_calls": msg.tool_calls,
+                }
+            )
 
             for tc in msg.tool_calls:
                 name = tc.function.name
-                spec = self.tools[name]
-                args = json.loads(tc.function.arguments or "{}")
+                # 툴 이름 중복 방지
+                if name in {"expand_query", "search_pmids", "fetch_and_parse", "finalize"}:
+                    if name in ctx["_called"]:
+                        raise RuntimeError(f"Tool '{name}' called more than once.")
+                    ctx["_called"].add(name)
+                spec = self.tools.get(name)
+                # json 오인 방지
+                if spec is None:
+                    raise RuntimeError(f"Unknown tool requested by planner: {name}")
+                try:
+                    args = json.loads(tc.function.arguments or "{}")
+                except Exception:
+                    args = {}
                 result = spec.handler(args, ctx)
                 messages.append(
                     {
@@ -140,48 +189,75 @@ class RetrieverToolRouter:
                     }
                 )
                 if name == "finalize":
-                    return result["paper_corpus"]
+                    return PaperCorpus(**result["paper_corpus"])
 
+        raise RuntimeError("Exceeded max_steps without finalize.")
     # --- Tool handlers ---
     def _handle_expand(self, _args: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
         expanded = self.expander.expand(ctx["uq"])
-        ctx["expanded_queries"] = expanded
+        ctx["artifacts"]["expanded_queries"] = expanded
         return {"expanded_queries": expanded}
 
     def _handle_search_pmids(self, args: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
         retmax = args.get("retmax")
-        eqs = ctx.get("expanded_queries") or self.expander.expand(ctx["uq"])
+        eqs = ctx["artifacts"].get("expanded_queries") or self.expander.expand(ctx["uq"])
         pmids_by_q, prov = self.fetcher.collect_pmids(eqs, retmax=retmax)
-        ctx["expanded_queries"] = eqs
-        ctx["pmid_prov"] = prov
+        ctx["artifacts"]["expanded_queries"] = eqs
+        ctx["artifacts"]["pmid_prov"] = prov
         return {"pmids_by_query": pmids_by_q, "pmid_provenance": prov}
 
-    def _handle_fetch(self, _args: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
-        eqs = ctx["expanded_queries"]
-        prov = ctx["pmid_prov"]
-        papers = PubMedFetcher.fetch_and_parse(eqs, prov)
-        ctx["papers"] = papers
-        return {"papers": [p.model_dump() for p in papers]}
+    def _handle_fetch(self, _args, ctx):
+        if "expanded_queries" not in ctx["artifacts"] or "pmid_prov" not in ctx["artifacts"]:
+            raise RuntimeError("fetch_and_parse requires expanded_queries and pmid_prov. Call search_pmids first.")
+        eqs = ctx["artifacts"]["expanded_queries"]
+        prov = ctx["artifacts"]["pmid_prov"]
+        papers = self.fetcher.fetch_and_parse(eqs, prov)
+        ctx["artifacts"]["papers_raw"] = papers
 
-    def _handle_rank(self, args: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
+        preview = [
+            {
+                "pmid": p.pmid,
+                "title": p.title,
+                "year": p.year,
+                "journal": p.journal,
+                "retrieval_reason": getattr(p, "retrieval_reason", None),
+            }
+            for p in papers[:50]
+        ]
+        return {"count": len(papers), "preview": preview}
+
+    def _handle_rank(self, args, ctx):
+        if "papers_raw" not in ctx["artifacts"]:
+            raise RuntimeError("rank_semantic requires papers_raw. Call fetch_and_parse first.")
+
         top_n = args.get("top_n", self.semantic_top_n)
         uq = ctx["uq"]
         qtext = " ".join([t for t in [uq.target_hint, uq.disease, uq.organ, uq.intent, uq.hypothesis] if t])
-        papers, scores = self.ranker.rank(qtext, ctx["papers"], top_n=top_n)
-        ctx["papers_ranked"] = papers
-        ctx["scores"] = scores
-        return {"top_n": len(papers), "pmids": [p.pmid for p in papers]}
+
+        papers_raw = ctx["artifacts"]["papers_raw"]
+        papers, scores = self.ranker.rank(qtext, papers_raw, top_n=top_n)
+
+        ctx["artifacts"]["papers_ranked"] = papers
+        ctx["artifacts"]["scores"] = scores
+        return {"top_n": len(papers), "pmids": [p.pmid for p in papers], "confidence_hint": "high" | "low"}
 
     def _handle_filter(self, _args: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
-        papers = ctx.get("papers_ranked") or ctx["papers"]
+        papers = ctx["artifacts"].get("papers_ranked") or ctx["artifacts"].get("papers_raw") or []
+        if not papers:
+            return {"kept_pmids": [], "meta": {}, "skipped": True}
         if not self.use_llm_filter:
             return {"kept_pmids": [p.pmid for p in papers], "meta": {}, "skipped": True}
         kept, meta = self.filter.filter(ctx["uq"], papers)
-        ctx["papers_filtered"] = kept
+        ctx["artifacts"]["papers_filtered"] = kept
         return {"kept_pmids": [p.pmid for p in kept], "meta": meta, "skipped": False}
 
-    def _handle_finalize(self, _args: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
-        papers = ctx.get("papers_filtered") or ctx.get("papers_ranked") or ctx["papers"]
+    def _handle_finalize(self, _args: Dict[str, Any], ctx) -> Dict[str, Any]:
+        papers = (
+                ctx["artifacts"].get("papers_filtered")
+                or ctx["artifacts"].get("papers_ranked")
+                or ctx["artifacts"].get("papers_raw")
+                or []
+        )
         corpus = PaperCorpus(query_id=ctx["uq"].query_id, papers=papers)
-        ctx["paper_corpus"] = corpus
+        ctx["artifacts"]["paper_corpus"] = corpus
         return {"paper_corpus": corpus.model_dump()}
