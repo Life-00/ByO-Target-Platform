@@ -1,3 +1,5 @@
+# app/service/rag_service.py
+
 import os
 import time
 import chromadb
@@ -7,6 +9,7 @@ from langchain_upstage import UpstageDocumentParseLoader, UpstageEmbeddings
 from langchain_chroma import Chroma
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores.utils import filter_complex_metadata
+from langchain_core.documents import Document
 
 from app.core.config import settings
 from typing import List, Optional
@@ -44,9 +47,6 @@ class RAGService:
         collection_name: str | None = None,
         upsert: bool = False,
     ) -> dict:
-        """
-        파일을 벡터화하여 ChromaDB에 저장
-        """
         vector_db = self.get_vector_db(collection_name)
 
         try:
@@ -61,6 +61,7 @@ class RAGService:
                 doc.metadata["session_id"] = str(session_id)
                 doc.metadata["file_id"] = str(file_id)
                 doc.metadata["source"] = os.path.basename(file_path)
+                doc.metadata["type"] = "raw_text"
 
             final_docs = filter_complex_metadata(split_docs)
 
@@ -85,7 +86,6 @@ class RAGService:
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
-    # ✅ async 필수 적용 완료
     async def get_relevant_context(
         self, 
         query: str, 
@@ -95,78 +95,111 @@ class RAGService:
         collection_name: str | None = None
     ) -> str:
         """
-        RAG 검색 수행. file_ids가 있으면 해당 파일 내에서만 검색.
+        RAG 검색 수행 및 메타데이터(페이지 번호) 포함 포맷팅
         """
         print(f"[{time.strftime('%H:%M:%S')}] [RAG] Retrieve (session={session_id}, files={len(file_ids) if file_ids else 'ALL'})")
 
         vector_db = self.get_vector_db(collection_name)
 
         try:
-            # 1. 기본 필터
-            filter_conditions = [
+            base_conditions = [
                 {"user_email": email},
                 {"session_id": str(session_id)}
             ]
 
-            # 2. 파일 선택 필터
             if file_ids:
-                filter_conditions.append({"file_id": {"$in": [str(fid) for fid in file_ids]}})
+                str_ids = [str(fid) for fid in file_ids]
+                file_condition = {
+                    "$or": [
+                        {"file_id": {"$in": str_ids}}, 
+                        {"pmid": {"$in": str_ids}}     
+                    ]
+                }
+                base_conditions.append(file_condition)
 
-            # 요약 모드 키워드
-            generic_keywords = ["요약", "정리", "읽어", "뭐야", "분석", "summary", "explain", "analyze", "read"]
+            final_filter = {"$and": base_conditions}
+
+            generic_keywords = ["요약", "정리", "읽어", "뭐야", "분석", "summary", "explain", "analyze", "read", "content"]
             is_generic_query = any(k in query.lower() for k in generic_keywords)
 
             docs = []
             
-            # 3-A. 요약 모드 (파일 앞부분 조회)
+            # 요약 모드 처리 (생략 없이 유지)
             if is_generic_query and file_ids:
-                print(f"[{time.strftime('%H:%M:%S')}] [RAG] Generic query detected -> Fetching first chunks")
                 target_ids = []
                 for fid in file_ids:
                     target_ids.append(f"{session_id}_{fid}_0")
-                    target_ids.append(f"{session_id}_{fid}_1")
+                    target_ids.append(f"{session_id}_{fid}_auto_0")
+                    target_ids.append(f"{session_id}_{fid}_auto_1")
                 
-                results = vector_db._collection.get(ids=target_ids)
-                
-                if results and results['documents']:
-                    for i, content in enumerate(results['documents']):
-                        meta = results['metadatas'][i] if results['metadatas'] else {}
-                        from langchain_core.documents import Document
-                        docs.append(Document(page_content=content, metadata=meta))
+                try:
+                    results = vector_db._collection.get(ids=target_ids)
+                    if results and results['documents']:
+                        for i, content in enumerate(results['documents']):
+                            if content:
+                                meta = results['metadatas'][i] if results['metadatas'] else {}
+                                docs.append(Document(page_content=content, metadata=meta))
+                except Exception: pass
             
-            # 3-B. 일반 검색 (Similarity Search)
             if not docs:
-                search_kwargs = {
-                    "filter": {"$and": filter_conditions},
-                    "k": 4, 
-                }
+                search_kwargs = {"filter": final_filter, "k": 5}
                 docs = vector_db.similarity_search(query, **search_kwargs)
             
-            # ✅ [수정] 검색 결과 없음 + 파일 선택됨 = Extractor 미실행 가능성 높음
             if not docs:
                 if file_ids:
-                    return (
-                        "선택하신 파일에서 내용을 찾을 수 없습니다. "
-                        "해당 파일이 'Extractor' 에이전트를 통해 분석(Indexing)되었는지 확인해 주세요. "
-                        "아직 분석되지 않았다면 Extractor 탭에서 실행 버튼을 눌러주세요."
-                    )
+                    return "선택하신 파일에 대한 분석 정보를 찾을 수 없습니다."
                 else:
                     return "관련된 문서 내용을 찾을 수 없습니다."
 
+            # 🔥 [핵심 변경] 페이지 번호와 출처를 포함하여 텍스트 포맷팅
             parts = []
             for i, doc in enumerate(docs):
-                source_file = doc.metadata.get("source", "알 수 없는 파일")
-                page_num = doc.metadata.get("page", "-")
+                source_file = doc.metadata.get("source") or doc.metadata.get("paper_title") or "Unknown File"
+                
+                # Upstage Loader는 보통 'page' 키에 1-based 또는 0-based 페이지 정보를 담음
+                # 메타데이터에서 안전하게 가져옴 (없으면 'Unknown')
+                page_num = doc.metadata.get("page", None)
+                
+                # 페이지 정보 문자열 생성
+                if page_num is not None:
+                    # 0부터 시작하는 경우 +1, 아니면 그대로 사용
+                    page_str = f"Page {int(page_num) + 1}"
+                else:
+                    page_str = "Page Unknown"
+
                 parts.append(
-                    f"[참고 문헌 {i+1}]\n"
-                    f"파일명: {source_file}\n"
-                    f"내용: {doc.page_content[:1000]}...\n"
+                    f"[[{source_file} | {page_str}]]\n"  # LLM이 인용할 마커
+                    f"{doc.page_content}\n"
                 )
-            return "\n".join(parts)
+            return "\n\n".join(parts)
 
         except Exception as e:
             print(f"[RAG Error] {str(e)}")
             return ""
+        
+    async def get_full_document_text(self, session_id: UUID, file_id: UUID) -> str:
+        vector_db = self.get_vector_db()
+        try:
+            collection = vector_db._collection
+            results = collection.get(
+                where={
+                    "$and": [
+                        {"session_id": str(session_id)},
+                        {"file_id": str(file_id)}
+                    ]
+                }
+            )
+            
+            if not results or not results['ids']: return ""
 
+            combined = zip(results['ids'], results['documents'])
+            sorted_docs = sorted(combined, key=lambda x: int(x[0].split('_')[-1]))
+            
+            full_text = "\n\n".join([doc for _, doc in sorted_docs])
+            return full_text
+
+        except Exception as e:
+            print(f"[RAG Summary Error] {e}")
+            return ""
 
 rag_service = RAGService()

@@ -1,10 +1,11 @@
+# app/api/v1/files.py
 import os
 import uuid
 import shutil
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -13,7 +14,8 @@ from app.api.deps import get_current_user_email
 
 from app.models.pipeline import UploadedFile
 from app.schemas.files import FileUploadResponse, UploadedFileResponse
-
+# [NEW] 자동 추출 함수 import
+from app.api.v1.extract import auto_extract_file
 
 router = APIRouter(prefix="/sessions", tags=["files"])
 
@@ -50,10 +52,10 @@ async def upload_files(
     files: Optional[List[UploadFile]] = File(None),
     email: str = Depends(get_current_user_email),
     db: Session = Depends(get_db),
+    background_tasks: BackgroundTasks = BackgroundTasks(), # ✅ BackgroundTasks 주입
 ):
     """
-    ✅ 업로드는 저장 + DB 기록만
-    ❌ 여기서 벡터화 금지 (extract에서만)
+    ✅ 업로드 -> 저장 -> DB기록 -> (백그라운드) 자동 추출 및 벡터화
     """
     if not files:
         return []
@@ -102,6 +104,7 @@ async def upload_files(
             except Exception:
                 pass
 
+        # DB 기록 생성
         rec = UploadedFile(
             id=file_id,
             session_id=session_id, # SQLAlchemy가 UUID 객체 처리
@@ -110,10 +113,19 @@ async def upload_files(
             storage_path=save_path,
             mime_type=f.content_type,
             size_bytes=total,
-            status="uploaded",
+            status="uploaded", # 초기 상태: 업로드됨
         )
         db.add(rec)
         db.commit()
+
+        # ✅ [핵심] 백그라운드 작업 등록: 자동 추출 실행
+        # 파일이 성공적으로 저장된 경우에만 실행
+        background_tasks.add_task(
+            auto_extract_file,
+            session_id=session_id,
+            file_id=file_id,
+            user_email=email
+        )
 
         results.append({"file_id": file_id, "original_name": f.filename, "status": "uploaded"})
 
@@ -122,7 +134,7 @@ async def upload_files(
 
 @router.get("/{session_id}/files", response_model=List[UploadedFileResponse])
 async def list_files(
-    session_id: UUID,  # ✅ UUID 타입 적용
+    session_id: UUID,
     email: str = Depends(get_current_user_email),
     db: Session = Depends(get_db),
 ):
@@ -137,8 +149,8 @@ async def list_files(
 
 @router.delete("/{session_id}/files/{file_id}")
 async def delete_file(
-    session_id: UUID,  # ✅ UUID 타입 적용
-    file_id: UUID,     # ✅ UUID 타입 적용
+    session_id: UUID,
+    file_id: UUID,
     email: str = Depends(get_current_user_email),
     db: Session = Depends(get_db),
 ):
@@ -167,11 +179,10 @@ async def delete_file(
     return {"message": "deleted", "file_id": file_id}
 
 
-# ✅ [추가] 파일 다운로드 엔드포인트
 @router.get("/{session_id}/files/{file_id}/download")
 async def download_file(
-    session_id: UUID,  # ✅ UUID 타입 적용
-    file_id: UUID,     # ✅ UUID 타입 적용
+    session_id: UUID,
+    file_id: UUID,
     email: str = Depends(get_current_user_email),
     db: Session = Depends(get_db),
 ):
@@ -195,3 +206,31 @@ async def download_file(
         filename=row.original_name,
         media_type=row.mime_type or "application/octet-stream",
     )
+    
+@router.get("/{session_id}/files/{file_id}/summary")
+async def get_file_summary(
+    session_id: UUID,
+    file_id: UUID,
+    email: str = Depends(get_current_user_email),
+    db: Session = Depends(get_db),
+):
+    """
+    파일의 요약본(summary 컬럼)을 반환합니다.
+    """
+    uf = db.query(UploadedFile).filter(
+        UploadedFile.id == file_id,
+        UploadedFile.session_id == session_id,
+        UploadedFile.user_email == email
+    ).first()
+
+    if not uf:
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    if not uf.summary:
+        # 아직 요약이 안 된 경우
+        if uf.status == "uploaded":
+            return {"status": "processing", "content": "🔄 문서를 분석하고 요약 보고서를 작성 중입니다... 잠시만 기다려 주세요."}
+        else:
+            return {"status": "empty", "content": "요약된 내용이 없습니다."}
+
+    return {"status": "done", "content": uf.summary}

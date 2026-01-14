@@ -20,6 +20,7 @@ class UploadedFile(Base):
 
     # uploaded / failed / parsed ... 등
     status = Column(String, default="uploaded", nullable=False)
+    summary = Column(Text, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
