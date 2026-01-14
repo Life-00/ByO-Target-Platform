@@ -13,6 +13,7 @@ dependencies = [
     "langchain-upstage>=0.7.4",
     "chromadb>=1.4.0",
     "langsmith>=0.4.37",
+    "reportlab>=4.4.7",
 ]
 
 [tool.setuptools]
