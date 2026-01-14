@@ -29,5 +29,7 @@ class RetrieverAgent:
             knee_max_k=knee_max_k or semantic_top_n,
         )
 
-    def run(self, user_query: UserQuery) -> PaperCorpus:
-        return self.pipeline.run(user_query)
+    # def run(self, user_query: UserQuery) -> PaperCorpus:
+    #     return self.pipeline.run(user_query)
+    def run_stream(self, user_query: UserQuery):
+        yield from self.pipeline.run_stream(user_query)

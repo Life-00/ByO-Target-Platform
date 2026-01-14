@@ -6,6 +6,8 @@ from uuid import UUID
 class ResearchRequest(BaseModel):
     query: str
     top_k: int = 10
+    is_confirmed: bool = False  # True면 바로 검색, False면 분석만 수행
+    confirmed_intent: Optional[dict] = None # 분석된 의도 객체 (
 
 class StagedPaperResponse(BaseModel):
     id: UUID           

@@ -167,6 +167,7 @@ async def delete_file(
     return {"message": "deleted", "file_id": file_id}
 
 
+# ✅ [추가] 파일 다운로드 엔드포인트
 @router.get("/{session_id}/files/{file_id}/download")
 async def download_file(
     session_id: UUID,  # ✅ UUID 타입 적용
