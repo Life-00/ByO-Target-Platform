@@ -20,9 +20,12 @@ import {
   CheckSquare,
   Layers,
   FileUp,
-  CheckCircle2, // ✅ 추가됨: 분석 완료 아이콘
+  CheckCircle2,
+  Download,
+  ExternalLink,
+  Play, // ✅ 실행 아이콘 추가
 } from "lucide-react";
-import api from "../../api"; // baseURL: http://localhost:8000/api/v1
+import api from "../../api";
 import "./Dashboard.css";
 
 const AGENTS = [
@@ -33,16 +36,12 @@ const AGENTS = [
 ];
 
 const Dashboard = ({ onLogout }) => {
-  // --- 상태 관리 ---
   const [sessions, setSessions] = useState([]);
   const [currentSessionId, setCurrentSessionId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [isWaiting, setIsWaiting] = useState(false);
-
-  // References: { id, title, type, checked, isLocal, isLoading, file, status, itemType }
   const [references, setReferences] = useState([]);
-
   const [activeAgent, setActiveAgent] = useState("general");
   const [isRefPanelOpen, setIsRefPanelOpen] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth > 1024);
@@ -53,7 +52,6 @@ const Dashboard = ({ onLogout }) => {
   const fileInputRef = useRef(null);
   const isInitializing = useRef(false);
 
-  // --- 초기화 로직: 세션 목록 로드 ---
   useEffect(() => {
     const init = async () => {
       if (isInitializing.current) return;
@@ -62,7 +60,7 @@ const Dashboard = ({ onLogout }) => {
         const res = await api.get("/sessions");
         setSessions(res.data);
       } catch (err) {
-        console.error("세션 목록 로드 실패", err);
+        console.error("세션 로드 실패", err);
       }
     };
     init();
@@ -80,13 +78,12 @@ const Dashboard = ({ onLogout }) => {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // 스크롤 자동 조정
   useEffect(() => {
     if (scrollRef.current)
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages, isWaiting, input]);
 
-  // --- 헬퍼 함수: References 병합 로직 ---
+  // --- 헬퍼 함수 ---
   const fetchAndMergeReferences = async (sessionId) => {
     try {
       const [filesRes, candidatesRes, selectionsRes] = await Promise.all([
@@ -98,7 +95,6 @@ const Dashboard = ({ onLogout }) => {
       const uploadedFiles = filesRes.data || [];
       const stagedPapers = candidatesRes.data || [];
       const selections = selectionsRes.data || [];
-
       const selectedIds = new Set(selections.map((s) => s.item_id));
 
       const mappedFiles = uploadedFiles.map((f) => {
@@ -111,7 +107,7 @@ const Dashboard = ({ onLogout }) => {
           id: f.id,
           title: f.original_name,
           type: ext,
-          status: f.status, // ✅ 분석 상태(indexed 등) 연동
+          status: f.status,
           checked: selectedIds.has(f.id),
           isLocal: false,
           isLoading: false,
@@ -124,12 +120,13 @@ const Dashboard = ({ onLogout }) => {
           id: p.id,
           title: p.title,
           type: "PDF",
-          status: "staged", // 논문은 기본 상태
+          status: "staged",
           checked: selectedIds.has(p.id),
           isLocal: false,
           isLoading: false,
           source: p.source,
           itemType: "paper",
+          url: p.url,
         };
       });
 
@@ -139,8 +136,146 @@ const Dashboard = ({ onLogout }) => {
     }
   };
 
-  // --- 핸들러 ---
+  // --- 파일 즉시 업로드 ---
+  const uploadFilesToSession = async (sessionId, files) => {
+    if (!files || files.length === 0) return;
 
+    const newRefs = Array.from(files).map((file, index) => ({
+      id: `temp-${Date.now()}-${index}`,
+      title: file.name,
+      type: (file.name.split(".").pop() || "FILE").toUpperCase(),
+      status: "uploading",
+      checked: true,
+      isLocal: true,
+      isLoading: true,
+      file: file,
+      itemType: "file",
+    }));
+    setReferences((prev) => [...prev, ...newRefs]);
+    if (!isRefPanelOpen) setIsRefPanelOpen(true);
+
+    try {
+      const fd = new FormData();
+      Array.from(files).forEach((f) => fd.append("files", f));
+      const res = await api.post(`/sessions/${sessionId}/files`, fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      const uploadedItems = res.data || [];
+
+      for (const item of uploadedItems) {
+        await api.post(`/sessions/${sessionId}/selections/toggle`, {
+          item_type: "uploaded_file",
+          item_id: item.file_id,
+        });
+      }
+      await fetchAndMergeReferences(sessionId);
+    } catch (err) {
+      console.error("Upload failed", err);
+      alert("파일 업로드 실패");
+      setReferences((prev) =>
+        prev.filter((r) => !r.id.toString().startsWith("temp-"))
+      );
+    }
+  };
+
+  const handleFileSelection = async (files) => {
+    if (!files || files.length === 0) return;
+    let targetId = currentSessionId;
+    if (!targetId) {
+      try {
+        const createRes = await api.post("/sessions", { title: "New Session" });
+        targetId = createRes.data.id;
+        setSessions((prev) => [createRes.data, ...prev]);
+        setCurrentSessionId(targetId);
+      } catch (err) {
+        alert("세션 생성 실패");
+        return;
+      }
+    }
+    await uploadFilesToSession(targetId, files);
+  };
+
+  // --- 검색 확정 (Human-in-the-loop) ---
+  const handleConfirmResearch = async (analysisData) => {
+    setMessages((prev) => [
+      ...prev,
+      { role: "user", content: "네, 검색해 주세요." },
+    ]);
+    setIsWaiting(true);
+    const token = localStorage.getItem("token");
+    let targetId = currentSessionId;
+
+    try {
+      const response = await fetch(
+        `${api.defaults.baseURL}/sessions/${targetId}/research`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            query: "Confirmed Search",
+            top_k: 5,
+            is_confirmed: true, // ✅ 확정 플래그
+            confirmed_intent: analysisData,
+          }),
+        }
+      );
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop();
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const step = JSON.parse(line);
+            if (step.type === "log") {
+              setMessages((prev) => {
+                const lastMsg = prev[prev.length - 1];
+                if (lastMsg && lastMsg.role === "ai" && lastMsg.isLog) {
+                  return [
+                    ...prev.slice(0, -1),
+                    { ...lastMsg, content: step.content },
+                  ];
+                } else {
+                  return [
+                    ...prev,
+                    { role: "ai", content: step.content, isLog: true },
+                  ];
+                }
+              });
+            } else if (step.type === "result") {
+              fetchAndMergeReferences(targetId);
+              const msgRes = await api.get(`/sessions/${targetId}/messages`);
+              setMessages(msgRes.data);
+            } else if (step.type === "error") {
+              setMessages((prev) => [
+                ...prev,
+                { role: "ai", content: `오류: ${step.content}` },
+              ]);
+            }
+          } catch (e) {
+            console.error(e);
+          }
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsWaiting(false);
+    }
+  };
+
+  // --- 기타 핸들러 (세션, 드래그, 다운로드 등) ---
   const handleSelectSession = async (id) => {
     setCurrentSessionId(id);
     setReferences([]);
@@ -148,26 +283,22 @@ const Dashboard = ({ onLogout }) => {
       const msgRes = await api.get(`/sessions/${id}/messages`);
       setMessages(msgRes.data);
       await fetchAndMergeReferences(id);
-
       if (window.innerWidth <= 768) setIsSidebarOpen(false);
     } catch (err) {
       console.error(err);
     }
   };
-
   const handleResetChat = () => {
     setCurrentSessionId(null);
     setMessages([]);
     setReferences([]);
     setInput("");
     setActiveAgent("general");
-    if (window.innerWidth <= 768) setIsSidebarOpen(false);
     if (textareaRef.current) textareaRef.current.focus();
   };
-
   const handleDeleteSession = async (e, id) => {
     e.stopPropagation();
-    if (!window.confirm("이 대화를 삭제하시겠습니까?")) return;
+    if (!window.confirm("삭제하시겠습니까?")) return;
     try {
       await api.delete(`/sessions/${id}`);
       setSessions((prev) => prev.filter((s) => s.id !== id));
@@ -176,112 +307,79 @@ const Dashboard = ({ onLogout }) => {
       alert("삭제 실패");
     }
   };
-
-  const handleFileSelection = (files) => {
-    const newFiles = Array.from(files || []);
-    const uniqueFiles = newFiles.filter((file) => {
-      return !references.some((ref) => ref.title === file.name);
-    });
-
-    if (uniqueFiles.length === 0 && newFiles.length > 0) {
-      alert("이미 추가된 파일입니다.");
+  const handleDownloadFile = async (e, ref) => {
+    e.stopPropagation();
+    if (!currentSessionId) return;
+    if (ref.isLocal) {
+      alert("업로드 중입니다.");
       return;
     }
-
-    const newRefs = uniqueFiles.map((file, index) => {
-      const ext = file.name.split(".").pop()?.toUpperCase() || "FILE";
-      return {
-        id: `local-${Date.now()}-${index}`,
-        title: file.name,
-        type: ext,
-        status: "uploading",
-        checked: true,
-        isLocal: true,
-        isLoading: true,
-        file: file,
-        itemType: "file",
-      };
-    });
-
-    setReferences((prev) => [...prev, ...newRefs]);
-    if (!isRefPanelOpen) setIsRefPanelOpen(true);
-
-    setTimeout(() => {
-      setReferences((prev) =>
-        prev.map((ref) => (ref.isLoading ? { ...ref, isLoading: false } : ref))
-      );
-    }, 800);
-  };
-
-  const removeReference = async (id, isLocal) => {
-    if (isLocal) {
-      setReferences((prev) => prev.filter((ref) => ref.id !== id));
+    if (ref.itemType === "paper") {
+      ref.url ? window.open(ref.url, "_blank") : alert("링크 없음");
     } else {
-      if (!currentSessionId) return;
-      if (!window.confirm("서버에서 파일을 삭제하시겠습니까?")) return;
       try {
-        const targetRef = references.find((r) => r.id === id);
-        if (targetRef && targetRef.itemType === "file") {
-          await api.delete(`/sessions/${currentSessionId}/files/${id}`);
-        }
-        setReferences((prev) => prev.filter((ref) => ref.id !== id));
+        const res = await api.get(
+          `/sessions/${currentSessionId}/files/${ref.id}/download`,
+          { responseType: "blob" }
+        );
+        const url = window.URL.createObjectURL(new Blob([res.data]));
+        const link = document.createElement("a");
+        link.href = url;
+        link.setAttribute("download", ref.title);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
       } catch (err) {
-        console.error("파일 삭제 실패", err);
-        alert("삭제 중 오류가 발생했습니다.");
+        alert("다운로드 실패");
       }
     }
   };
-
+  const removeReference = async (id, isLocal) => {
+    if (isLocal) setReferences((prev) => prev.filter((r) => r.id !== id));
+    else {
+      if (!currentSessionId || !window.confirm("삭제하시겠습니까?")) return;
+      try {
+        const target = references.find((r) => r.id === id);
+        if (target?.itemType === "file")
+          await api.delete(`/sessions/${currentSessionId}/files/${id}`);
+        setReferences((prev) => prev.filter((r) => r.id !== id));
+      } catch (err) {
+        alert("삭제 오류");
+      }
+    }
+  };
   const toggleReference = async (id) => {
     const target = references.find((r) => r.id === id);
     if (!target) return;
-
-    // UI 선반영
     setReferences((prev) =>
-      prev.map((ref) =>
-        ref.id === id ? { ...ref, checked: !ref.checked } : ref
-      )
+      prev.map((r) => (r.id === id ? { ...r, checked: !r.checked } : r))
     );
-
     if (target.isLocal) return;
-
-    if (currentSessionId) {
-      try {
-        const apiItemType =
-          target.itemType === "file" ? "uploaded_file" : "staged_paper";
-
-        await api.post(`/sessions/${currentSessionId}/selections/toggle`, {
-          item_type: apiItemType,
-          item_id: id,
-        });
-      } catch (err) {
-        console.error("Selection toggle failed", err);
-        // 실패 시 롤백
-        setReferences((prev) =>
-          prev.map((ref) =>
-            ref.id === id ? { ...ref, checked: !ref.checked } : ref
-          )
-        );
-      }
+    try {
+      await api.post(`/sessions/${currentSessionId}/selections/toggle`, {
+        item_type:
+          target.itemType === "file" ? "uploaded_file" : "staged_paper",
+        item_id: id,
+      });
+    } catch (err) {
+      setReferences((prev) =>
+        prev.map((r) => (r.id === id ? { ...r, checked: !r.checked } : r))
+      );
     }
   };
-
   const handleDrag = (e) => {
     e.preventDefault();
     e.stopPropagation();
     if (e.type === "dragenter" || e.type === "dragover") setDragActive(true);
     else if (e.type === "dragleave" || e.type === "drop") setDragActive(false);
   };
-
   const handleDrop = (e) => {
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleFileSelection(e.dataTransfer.files);
-    }
+    if (e.dataTransfer.files[0]) handleFileSelection(e.dataTransfer.files);
   };
-
   const handleInputResize = (e) => {
     setInput(e.target.value);
     if (textareaRef.current) {
@@ -290,137 +388,140 @@ const Dashboard = ({ onLogout }) => {
     }
   };
 
-  // --- 메시지 전송 및 에이전트 실행 ---
+  // --- 메시지 전송 (메인) ---
   const handleSendMessage = async () => {
-    const localFilesToSend = references.filter((r) => r.isLocal && r.checked);
-    if ((!input.trim() && localFilesToSend.length === 0) || isWaiting) return;
-
+    if (!input.trim() || isWaiting) return;
     const userContent = input.trim();
-    
-    setMessages((prev) => [
-      ...prev,
-      { role: "user", content: userContent || "파일 분석 요청" },
-    ]);
+    setMessages((prev) => [...prev, { role: "user", content: userContent }]);
     setInput("");
     if (textareaRef.current) textareaRef.current.style.height = "auto";
     setIsWaiting(true);
 
     try {
       let targetId = currentSessionId;
-
-      // 1. 세션 생성
       if (!targetId) {
-        const createRes = await api.post("/sessions", {
-          title:
-            userContent.substring(0, 15) +
-            (userContent.length > 15 ? "..." : "") || "New Session",
+        const res = await api.post("/sessions", {
+          title: userContent.substring(0, 15) || "New Session",
         });
-        targetId = createRes.data.id;
-        setSessions((prev) => [createRes.data, ...prev]);
+        targetId = res.data.id;
+        setSessions((prev) => [res.data, ...prev]);
         setCurrentSessionId(targetId);
       }
 
-      let uploadedItems = []; 
-
-      // 2. 로컬 파일 업로드
-      if (localFilesToSend.length > 0) {
-        const fd = new FormData();
-        localFilesToSend.forEach((ref) => fd.append("files", ref.file));
-
-        const uploadRes = await api.post(
-          `/sessions/${targetId}/files`,
-          fd,
-          { headers: { "Content-Type": "multipart/form-data" } }
-        );
-
-        uploadedItems = uploadRes.data || [];
-        
-        // 업로드된 파일 Selection 동기화
-        for (const file of uploadedItems) {
-          const correctId = file.file_id || file.id; 
-          await api.post(`/sessions/${targetId}/selections/toggle`, {
-            item_type: "uploaded_file",
-            item_id: correctId,
-          });
-        }
-      }
-
-      // 업로드 성공 후 UI 갱신 (로컬->서버)
-      if (uploadedItems.length > 0) {
-        setReferences((prev) => {
-          const existingServerFiles = prev.filter((r) => !r.isLocal);
-          const newlyUploaded = uploadedItems.map((f) => {
-            const title = f.original_name || f.filename || "FILE";
-            const ext = (title.split(".").pop() || "FILE").toUpperCase();
-            return {
-              id: f.file_id || f.id, 
-              title,
-              type: ext,
-              status: f.status || "uploaded",
-              checked: true,
-              isLocal: false,
-              isLoading: false,
-              itemType: "file",
-            };
-          });
-          const remainingLocal = prev.filter((r) => r.isLocal && !r.checked);
-          return [...existingServerFiles, ...newlyUploaded, ...remainingLocal];
-        });
-      }
-
-      // 3. 에이전트별 요청
-      let resData = null;
-      let replyText = "";
-
-      // 컨텍스트 ID 수집
-      const uploadedIds = uploadedItems.map(f => f.file_id || f.id);
       const serverRefIds = references
         .filter((r) => !r.isLocal && r.checked)
         .map((r) => r.id);
-      const contextIds = [...serverRefIds, ...uploadedIds];
 
       if (activeAgent === "general") {
         const res = await api.post(`/sessions/${targetId}/chat`, {
-          message: userContent || "파일을 분석해줘.",
-          context_ids: contextIds
+          message: userContent,
+          context_ids: serverRefIds,
         });
-        resData = res.data;
-        replyText = resData.reply || "답변이 도착했습니다."; 
+        setMessages((prev) => [
+          ...prev,
+          { role: "ai", content: res.data.reply },
+        ]);
       } else if (activeAgent === "retrieval") {
-        const res = await api.post(`/sessions/${targetId}/research`, {
-          query: userContent || "관련 논문 검색",
-          top_k: 5,
-        });
-        resData = res.data; 
-        replyText = `검색 완료: ${resData?.length || 0}건의 논문을 찾았습니다.`;
+        const token = localStorage.getItem("token");
+        try {
+          const response = await fetch(
+            `${api.defaults.baseURL}/sessions/${targetId}/research`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({ query: userContent, top_k: 5 }),
+            }
+          );
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop();
+            for (const line of lines) {
+              if (!line.trim()) continue;
+              try {
+                const step = JSON.parse(line);
+                if (step.type === "log") {
+                  setMessages((prev) => {
+                    const lastMsg = prev[prev.length - 1];
+                    if (lastMsg && lastMsg.role === "ai" && lastMsg.isLog)
+                      return [
+                        ...prev.slice(0, -1),
+                        { ...lastMsg, content: step.content },
+                      ];
+                    else
+                      return [
+                        ...prev,
+                        { role: "ai", content: step.content, isLog: true },
+                      ];
+                  });
+                } else if (step.type === "proposal") {
+                  // ✅ 제안 메시지 처리
+                  setMessages((prev) => [
+                    ...prev,
+                    {
+                      role: "ai",
+                      content: step.content,
+                      isProposal: true,
+                      analysisData: step.analysis,
+                    },
+                  ]);
+                } else if (step.type === "result") {
+                  fetchAndMergeReferences(targetId);
+                  const msgRes = await api.get(
+                    `/sessions/${targetId}/messages`
+                  );
+                  setMessages(msgRes.data);
+                } else if (step.type === "error") {
+                  setMessages((prev) => [
+                    ...prev,
+                    { role: "ai", content: `오류: ${step.content}` },
+                  ]);
+                }
+              } catch (e) {
+                console.error(e);
+              }
+            }
+          }
+        } catch (e) {
+          console.error(e);
+          setMessages((prev) => [
+            ...prev,
+            { role: "ai", content: "네트워크 오류" },
+          ]);
+        }
       } else if (activeAgent === "extractor") {
-        const res = await api.post(
-          `/sessions/${targetId}/extract?force=false`,
-          {}
-        );
-        resData = res.data; 
-        replyText = "선택된 파일에 대한 정보 추출 작업을 완료했습니다.";
+        await api.post(`/sessions/${targetId}/extract?force=false`, {});
+        const msgRes = await api.get(`/sessions/${targetId}/messages`);
+        setMessages(msgRes.data);
+        fetchAndMergeReferences(targetId);
       } else if (activeAgent === "synthesizer") {
         const res = await api.post(`/sessions/${targetId}/report`, {
-          prompt: userContent || "보고서 작성해줘",
+          prompt: userContent,
         });
-        resData = res.data; 
-        replyText = resData.content;
+        setMessages((prev) => [
+          ...prev,
+          { role: "ai", content: res.data.content },
+        ]);
       }
 
-      // 4. 상태 갱신
-      const [msgRes] = await Promise.all([
-        api.get(`/sessions/${targetId}/messages`),
-        fetchAndMergeReferences(targetId)
-      ]);
-      
-      setMessages(msgRes.data);
-
+      if (activeAgent !== "retrieval") {
+        const msgRes = await api.get(`/sessions/${targetId}/messages`);
+        setMessages(msgRes.data);
+        fetchAndMergeReferences(targetId);
+      }
     } catch (err) {
       console.error(err);
       setMessages((prev) => [
         ...prev,
-        { role: "ai", content: "오류가 발생했습니다. 다시 시도해주세요." },
+        { role: "ai", content: "오류가 발생했습니다." },
       ]);
     } finally {
       setIsWaiting(false);
@@ -438,8 +539,6 @@ const Dashboard = ({ onLogout }) => {
           onClick={() => setIsSidebarOpen(false)}
         />
       )}
-
-      {/* Left Sidebar */}
       <aside className={`sidebar ${!isSidebarOpen ? "closed" : ""}`}>
         <div className="sidebar-header">
           <div className="sidebar-title">
@@ -452,11 +551,9 @@ const Dashboard = ({ onLogout }) => {
             <ChevronLeft size={24} />
           </button>
         </div>
-
         <button className="new-chat-btn" onClick={handleResetChat}>
           <Plus size={20} /> New Chatting
         </button>
-
         <div className="chat-list">
           <p className="chat-list-header">RESEARCH HISTORY</p>
           {sessions.map((s) => (
@@ -479,13 +576,10 @@ const Dashboard = ({ onLogout }) => {
             </div>
           ))}
         </div>
-
         <button onClick={onLogout} className="logout-btn">
           <LogOut size={18} /> Logout
         </button>
       </aside>
-
-      {/* Main Chat Area */}
       <main className="chat-main">
         {!isSidebarOpen && (
           <button
@@ -503,7 +597,6 @@ const Dashboard = ({ onLogout }) => {
             <BookOpen size={20} />
           </button>
         )}
-
         <div className="message-container" ref={scrollRef}>
           {messages.length === 0 && !currentSessionId && (
             <div className="empty-state">
@@ -515,29 +608,40 @@ const Dashboard = ({ onLogout }) => {
               <p>원하는 에이전트를 선택하고 연구를 시작하세요.</p>
             </div>
           )}
-
           {messages.map((m, i) => (
-            <div key={i} className={`msg-bubble ${m.role}`}>
-              {m.role === "ai" ? (
+            <div
+              key={i}
+              className={`msg-bubble ${m.role} ${m.isLog ? "log-msg" : ""}`}
+            >
+              {m.role === "ai" && !m.isLog ? (
                 <div className="markdown-body">
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>
                     {m.content}
                   </ReactMarkdown>
+                  {/* ✅ 제안 버튼 표시 */}
+                  {m.isProposal && (
+                    <div style={{ marginTop: "10px" }}>
+                      <button
+                        className="proposal-btn confirm"
+                        onClick={() => handleConfirmResearch(m.analysisData)}
+                        disabled={isWaiting}
+                      >
+                        <Play size={14} /> 검색 시작
+                      </button>
+                    </div>
+                  )}
                 </div>
               ) : (
                 m.content
               )}
             </div>
           ))}
-
           {isWaiting && (
             <div className="msg-bubble ai loading-msg">
               <Loader2 className="animate-spin" size={16} /> 분석 중...
             </div>
           )}
         </div>
-
-        {/* Floating Input Area */}
         <div className="floating-input-wrapper">
           <div className="agent-selector-floating">
             {AGENTS.map((agent) => (
@@ -558,7 +662,6 @@ const Dashboard = ({ onLogout }) => {
               </button>
             ))}
           </div>
-
           <div
             className="input-box-container"
             style={{ boxShadow: `0 4px 20px ${activeAgentColor}15` }}
@@ -594,8 +697,6 @@ const Dashboard = ({ onLogout }) => {
           </div>
         </div>
       </main>
-
-      {/* Right Sidebar */}
       <aside
         className={`right-sidebar ${!isRefPanelOpen ? "closed" : ""} ${
           dragActive ? "drag-active" : ""
@@ -614,7 +715,6 @@ const Dashboard = ({ onLogout }) => {
             <button
               className="icon-btn"
               onClick={() => fileInputRef.current?.click()}
-              title="Upload Files"
             >
               <FileUp size={18} />
             </button>
@@ -633,14 +733,12 @@ const Dashboard = ({ onLogout }) => {
             </button>
           </div>
         </div>
-
         {dragActive && (
           <div className="sidebar-drag-overlay">
             <UploadCloud size={40} />
             <p>Drop files here</p>
           </div>
         )}
-
         <div className="reference-list">
           {references.length === 0 ? (
             <div className="empty-ref">
@@ -653,18 +751,23 @@ const Dashboard = ({ onLogout }) => {
             </div>
           ) : (
             references.map((ref) => {
-              // ✅ 분석 완료 상태 체크 (백엔드가 'indexed'로 보내줌)
               const isIndexed = ref.status === "indexed";
-
+              const isPaper = ref.itemType === "paper";
               return (
                 <div
                   key={ref.id}
-                  className={`ref-item ${ref.checked ? "selected" : ""} ${isIndexed ? "indexed" : ""}`}
+                  className={`ref-item ${ref.checked ? "selected" : ""} ${
+                    isIndexed ? "indexed" : ""
+                  }`}
                   onClick={() => !ref.isLoading && toggleReference(ref.id)}
                 >
                   <div className="ref-checkbox-area">
                     {ref.isLoading ? (
-                      <Loader2 className="animate-spin" size={14} color="#94a3b8" />
+                      <Loader2
+                        className="animate-spin"
+                        size={14}
+                        color="#94a3b8"
+                      />
                     ) : (
                       <input
                         type="checkbox"
@@ -674,14 +777,15 @@ const Dashboard = ({ onLogout }) => {
                       />
                     )}
                   </div>
-
                   <div className="ref-info">
                     <div className="ref-meta">
-                      {/* 뱃지 스타일 (indexed일 때 다름) */}
-                      <span className={`ref-ext-badge ${isIndexed ? "indexed-badge" : ""}`}>
+                      <span
+                        className={`ref-ext-badge ${
+                          isIndexed ? "indexed-badge" : ""
+                        }`}
+                      >
                         {ref.type}
                       </span>
-                      {/* ✅ 분석 완료 라벨 */}
                       {isIndexed && (
                         <span className="status-indexed">
                           <CheckCircle2 size={10} /> Analyzed
@@ -692,22 +796,34 @@ const Dashboard = ({ onLogout }) => {
                       {ref.title}
                     </p>
                   </div>
-
-                  <button
-                    className="ref-delete-btn"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      removeReference(ref.id, ref.isLocal);
-                    }}
-                  >
-                    <X size={12} />
-                  </button>
+                  <div className="ref-actions">
+                    <button
+                      className="ref-action-btn download"
+                      onClick={(e) => handleDownloadFile(e, ref)}
+                      title={isPaper ? "Open Link" : "Download"}
+                    >
+                      {isPaper ? (
+                        <ExternalLink size={14} />
+                      ) : (
+                        <Download size={14} />
+                      )}
+                    </button>
+                    <button
+                      className="ref-action-btn delete"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeReference(ref.id, ref.isLocal);
+                      }}
+                      title="Remove"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
                 </div>
               );
             })
           )}
         </div>
-
         <div className="right-sidebar-footer">
           <div className="footer-info">
             <CheckSquare size={14} />
