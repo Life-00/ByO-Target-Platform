@@ -1,4 +1,4 @@
-# app/agents/extractor/prompts.py
+# app/agents/extractor/prompts.json
 
 from __future__ import annotations
 from typing import List, Dict
