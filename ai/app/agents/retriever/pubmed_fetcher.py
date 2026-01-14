@@ -4,8 +4,8 @@ from __future__ import annotations
 from typing import Dict, List, Tuple, Optional
 
 from app.agents.retriever.types import ExpandedQuery
-from app.services.pubmed import client as pubmed_client
-from app.services.pubmed.parser import parse_medline
+from app.service.pubmed import client as pubmed_client
+from app.service.pubmed.parser import parse_medline
 from app.schemas.retrieval import Paper
 
 
