@@ -1,7 +1,6 @@
 # app/agents/extractor/agent.py
 
 from __future__ import annotations
-
 from typing import List
 
 from app.agents.extractor.prompts import claim_extraction_prompt
@@ -13,9 +12,9 @@ from app.schemas.retrieval import PaperCorpus, Paper
 from app.schemas.knowledge import KnowledgeChunk
 from app.core.llm import call_llm
 
+from app.services.chromadb.ingest_chunk import add_chunks_to_chromadb
 
 print(">>> USING UPDATED ExtractorAgent (LLM-only, no enums) <<<")
-
 
 class ExtractorAgent:
     """
@@ -30,6 +29,7 @@ class ExtractorAgent:
     def __init__(self, min_confidence: float = 0.0):
         self.min_confidence = min_confidence
 
+    # 논문에서 중요정보 추출, KnowledgeChunk 생성
     def run(self, corpus: PaperCorpus) -> List[KnowledgeChunk]:
         chunks: List[KnowledgeChunk] = []
 
@@ -49,8 +49,26 @@ class ExtractorAgent:
 
         return chunks
 
-    # ---------- Step 1: Claim extraction ----------
+    # ChromaDB에 생성한 KnowledgeChunk 저장
+    def run_and_store(self, corpus: PaperCorpus) -> List[KnowledgeChunk]:
+        """
+        Execute extraction and persist resulting KnowledgeChunks into ChromaDB.
 
+        - Includes side effects (vector DB write)
+        - Intended for ingestion pipeline
+        """
+        chunks = self.run(corpus)
+
+        if chunks:
+            try:
+                add_chunks_to_chromadb(chunks)
+            except Exception as e:
+                print("[ExtractorAgent] Failed to store chunks:", e)
+
+        return chunks
+
+
+    # ---------- Step 1: Claim extraction ----------
     def _extract_claims(self, paper: Paper) -> List[ExtractedClaim]:
         """
         LLM returns a SINGLE structured claim object.
