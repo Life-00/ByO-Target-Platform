@@ -35,6 +35,9 @@ class Settings(BaseSettings):
 
     AUTO_CREATE_TABLES: bool = True
 
+    NCBI_EMAIL: str 
+    NCBI_TOOL: str 
+
     class Config:
         env_file = ".env"
         extra = "ignore"
