@@ -12,16 +12,23 @@ from app.agents.retriever.paper_filter import PaperFilter
 
 class RetrieverPipeline:
     def __init__(
-        self,
-        use_llm_expand: bool = False,
-        use_llm_filter: bool = True,
-        default_retmax: int = 50,
-        semantic_top_n: int = 200,
-        llm_keep_eval_n: int = 80,
+            self,
+            use_llm_expand: bool = True,
+            use_llm_filter: bool = True,
+            default_retmax: int = 300,
+            semantic_top_n: int = 200,
+            llm_keep_eval_n: int = 80,
+            use_knee_cutoff: bool = True,
+            knee_min_k: int = 5,
+            knee_max_k: int | None = None,
     ):
         self.expander = QueryExpander(use_llm=use_llm_expand)
         self.fetcher = PubMedFetcher(default_retmax=default_retmax)
-        self.ranker = SemanticRanker()
+        self.ranker = SemanticRanker(
+            use_knee_cutoff=use_knee_cutoff,
+            knee_min_k=knee_min_k,
+            knee_max_k=knee_max_k or semantic_top_n,  # cap by top_n if not provided
+        )
         self.filter = PaperFilter(keep_eval_n=llm_keep_eval_n)
 
         self.use_llm_filter = use_llm_filter
@@ -39,7 +46,7 @@ class RetrieverPipeline:
         _, pmid_prov = self.fetcher.collect_pmids(expanded_queries, retmax=retmax)
 
         # 3) Fetch + parse
-        papers_raw = self.fetcher.fetch_and_parse(expanded_queries, pmid_prov)
+        papers_raw = PubMedFetcher.fetch_and_parse(expanded_queries, pmid_prov)
 
         # 4) Semantic rerank + topN
         qtext = " ".join(

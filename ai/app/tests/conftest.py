@@ -25,6 +25,7 @@
 #     ]
 #
 #
+<<<<<<< HEAD
 # @pytest.fixture(params=[
 #     # CASE 1: consistent (모두 증가)
 #     [
@@ -95,6 +96,32 @@
 # ])
 # def sample_facts(request):
 #     return request.param
+
+# @pytest.fixture
+# def sample_facts():
+#     return [
+#         Fact(
+#             fact_id="f1",
+#             pmid="123",
+#             sentence_id="s0",
+#             text="EGFR inhibition reduces tumor growth",
+#             entities=EntitySet(
+#                 target=["EGFR"],
+#                 disease=["lung cancer"],
+#                 organ=[],
+#                 compound=[]
+#             ),
+#             relation=RelationInfo(
+#                 type="decrease",
+#                 object="tumor growth"
+#             ),
+#             experiment=ExperimentInfo(
+#                 model="animal",
+#                 species="mouse"
+#             )
+#         )
+#     ]
+>>>>>>> 9224b6f7e57a72ad1f6b5088fc3432d00220090a
 #
 #
 # @pytest.fixture

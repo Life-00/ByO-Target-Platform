@@ -31,15 +31,11 @@ def _with_retry(fn: Callable[[], T], retries: int = 3, base_sleep: float = 0.4) 
 
 
 def search_pmids(query: str, retmax: int) -> List[str]:
-    """
-    PubMed 검색 → PMID 리스트
-    """
     def _call():
         handle = Entrez.esearch(
             db="pubmed",
             term=query,
             retmax=retmax,
-            api_key=NCBI_API_KEY or None,
         )
         try:
             record = Entrez.read(handle)
@@ -50,6 +46,7 @@ def search_pmids(query: str, retmax: int) -> List[str]:
             except Exception:
                 pass
 
+    # 여기서만 retry 래핑
     return _with_retry(_call)
 
 
@@ -63,7 +60,6 @@ def fetch_medline(pmid: str) -> str:
             id=pmid,
             rettype="medline",
             retmode="text",
-            api_key=NCBI_API_KEY or None,
         )
         try:
             return handle.read()

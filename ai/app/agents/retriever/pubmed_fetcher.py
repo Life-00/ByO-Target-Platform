@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Dict, List, Tuple, Optional
 
 from app.agents.retriever.types import ExpandedQuery
-from app.services.pubmed.client import search_pmids, fetch_medline
+from app.services.pubmed import client as pubmed_client
 from app.services.pubmed.parser import parse_medline
 from app.schemas.retrieval import Paper
 
@@ -32,7 +32,7 @@ class PubMedFetcher:
             qid = q["query_id"]
             term = q["query"]
 
-            pmids = search_pmids(term, n)
+            pmids = pubmed_client.search_pmids(term, n)
             pmids_by_query[qid] = pmids
 
             for pmid in pmids:
@@ -40,9 +40,9 @@ class PubMedFetcher:
 
         return pmids_by_query, pmid_provenance
 
+    @staticmethod
     def fetch_and_parse(
-        self,
-        expanded_queries: List[ExpandedQuery],
+            expanded_queries: List[ExpandedQuery],
         pmid_provenance: Dict[str, List[str]],
     ) -> List[Paper]:
         qmap = {q["query_id"]: q for q in expanded_queries}
@@ -52,7 +52,7 @@ class PubMedFetcher:
             rep_qid = qids[0]
             reason = qmap.get(rep_qid, {}).get("reason", "keyword")
 
-            record = fetch_medline(pmid)
+            record = pubmed_client.fetch_medline(pmid)
             paper = parse_medline(
                 pmid=pmid,
                 record=record,

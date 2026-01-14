@@ -1,209 +1,131 @@
 # app/agents/extractor/agent.py
-from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import List, Optional
-from uuid import uuid4
+from typing import List
 
-from app.schemas.retrieval import Paper
-from app.schemas.query import UserQuery
-from app.schemas.knowledge import KnowledgeChunk, KnowledgeDocument
-
-from app.agents.extractor.prompts import claim_detection_prompt, entity_extraction_prompt, relation_inference_prompt,
-from app.agents.extractor.parsers import parse_json_response, normalize_optional_str, normalize_enum, clamp_confidence,
-
-from app.core.llm import llm_client
-from app.services.chromadb.ingest_chunks import add_chunks_to_chromadb
-
-
-STANCE_ALLOWED = {"support", "refute", "neutral", "unknown"}
-EFFECT_ALLOWED = {"increase", "decrease", "no_change", "mixed", "unknown"}
-EVIDENCE_ALLOWED = {"in_vitro", "in_vivo", "clinical", "review", "unknown"}
+from app.agents.extractor.prompts import (
+    extract_claims_prompt,
+    relation_inference_prompt,
+)
+from app.agents.extractor.parser import (
+    parse_json_response,
+    normalize_enum,
+    normalize_optional_str,
+    clamp_confidence,
+)
+from app.schemas.paper import PaperCorpus
+from app.schemas.knowledge import KnowledgeChunk
+from app.core.llm import call_llm
 
 
-@dataclass
-class ExtractorConfig:
-    min_confidence: float = 0.40
-    max_sentences: Optional[int] = None
-    llm_retries: int = 2
+EFFECT_DIRECTION_ALLOWED = {
+    "increase",
+    "decrease",
+    "modulate",
+    "no_significant_effect",
+    "unknown",
+}
+
+EVIDENCE_ALLOWED = {
+    "in_vitro",
+    "in_vivo",
+    "clinical",
+    "review",
+    "unknown",
+}
 
 
 class ExtractorAgent:
-    """
-    LLM-only Extractor Agent
-    - 단계 분리
-    - JSON 강제
-    - 코드 조립
-    """
+    def __init__(self, min_confidence: float = 0.6):
+        self.min_confidence = min_confidence
 
-    def __init__(self, config: Optional[ExtractorConfig] = None):
-        self.config = config or ExtractorConfig()
-        self.llm = get_llm_client()
-
-    # ======================
-    # Public Entrypoint
-    # ======================
-
-    def run(self, paper: Paper, query: UserQuery) -> KnowledgeDocument:
+    def run(self, corpus: PaperCorpus) -> List[KnowledgeChunk]:
         chunks: List[KnowledgeChunk] = []
 
-        sentences = paper.abstract_sentences or []
-        if self.config.max_sentences:
-            sentences = sentences[: self.config.max_sentences]
+        for paper in corpus.papers:
+            claims = self._extract_claims(paper.abstract)
 
-        for sent in sentences:
-            claim = self._step1_detect_claim(sent.text)
-            if claim is None:
-                continue
+            for item in claims:
+                relation = self._infer_relation(item["claim"])
 
-            target, disease = self._step2_extract_entities(claim, query)
-            if not target or not disease:
-                continue
+                if relation["confidence"] < self.min_confidence:
+                    continue
 
-            relation = self._step3_infer_relation(claim)
+                chunk = self._assemble_chunk(
+                    paper=paper,
+                    claim=item["claim"],
+                    source_sentence_id=item["source_sentence_id"],
+                    relation=relation,
+                )
+                chunks.append(chunk)
 
-            chunk = self._step4_assemble_chunk(
-                paper=paper,
-                query=query,
-                claim=claim,
-                target=target,
-                disease=disease,
-                relation=relation,
-                source_sentence_id=sent.sentence_id,
-            )
+        return chunks
 
-            if not self._validate_chunk(chunk):
-                continue
+    # ---------- Step 1: claim extraction ----------
 
-            chunks.append(chunk)
+    def _extract_claims(self, abstract: str) -> List[dict]:
+        prompt = extract_claims_prompt(abstract)
+        response = call_llm(prompt)
+        data = parse_json_response(response)
 
-        # Extractor는 저장을 "직접" 하지 않고 ingest layer에 위임
-        if chunks:
-            add_chunks_to_chromadb(chunks)
+        return data.get("claims", [])
 
-        return KnowledgeDocument(
-            pmid=paper.pmid,
-            query_id=query.query_id,
-            extractor_version="v1-llm-only",
-            chunks=chunks,
-        )
+    # ---------- Step 2: relation inference ----------
 
-    # ======================
-    # Step 1. Claim Detection
-    # ======================
-
-    def _step1_detect_claim(self, sentence: str) -> Optional[str]:
-        prompt = claim_detection_prompt(sentence)
-
-        for _ in range(self.config.llm_retries + 1):
-            resp = self.llm(prompt).strip()
-            if resp.upper() == "NO":
-                return None
-            if len(resp) < 10:
-                return None
-            return resp
-
-        return None
-
-    # ======================
-    # Step 2. Entity Extraction
-    # ======================
-
-    def _step2_extract_entities(
-        self, claim: str, query: UserQuery
-    ) -> tuple[Optional[str], Optional[str]]:
-        prompt = entity_extraction_prompt(
-            claim=claim,
-            disease_hint=query.disease,
-            target_hint=query.target_hint,
-        )
-
-        for _ in range(self.config.llm_retries + 1):
-            raw = self.llm(prompt).strip()
-            try:
-                obj = parse_json_response(raw)
-            except Exception:
-                continue
-
-            target = normalize_optional_str(obj.get("target"))
-            disease = normalize_optional_str(obj.get("disease"))
-            return target, disease
-
-        return None, None
-
-    # ======================
-    # Step 3. Relation Inference
-    # ======================
-
-    def _step3_infer_relation(self, claim: str) -> dict:
+    def _infer_relation(self, claim: str) -> dict:
         prompt = relation_inference_prompt(claim)
-
-        for _ in range(self.config.llm_retries + 1):
-            raw = self.llm(prompt).strip()
-            try:
-                obj = parse_json_response(raw)
-            except Exception:
-                continue
-
-            return {
-                "stance": normalize_enum(obj.get("stance"), STANCE_ALLOWED, "unknown"),
-                "effect": normalize_enum(obj.get("effect"), EFFECT_ALLOWED, "unknown"),
-                "evidence_level": normalize_enum(
-                    obj.get("evidence_level"), EVIDENCE_ALLOWED, "unknown"
-                ),
-                "confidence": clamp_confidence(obj.get("confidence"), 0.5),
-            }
+        response = call_llm(prompt)
+        obj = parse_json_response(response)
 
         return {
-            "stance": "unknown",
-            "effect": "unknown",
-            "evidence_level": "unknown",
-            "confidence": 0.4,
+            "stance_description": normalize_optional_str(
+                obj.get("stance_description")
+            ),
+            "effect_direction": normalize_enum(
+                obj.get("effect_direction"),
+                EFFECT_DIRECTION_ALLOWED,
+                "unknown",
+            ),
+            "effect_descriptor": normalize_optional_str(
+                obj.get("effect_descriptor")
+            ),
+            "outcome_measure": normalize_optional_str(
+                obj.get("outcome_measure")
+            ),
+            "evidence_level": normalize_enum(
+                obj.get("evidence_level"),
+                EVIDENCE_ALLOWED,
+                "unknown",
+            ),
+            "confidence": clamp_confidence(obj.get("confidence")),
         }
 
-    # ======================
-    # Step 4. Chunk Assembly
-    # ======================
+    # ---------- Step 3: chunk assembly ----------
 
-    def _step4_assemble_chunk(
+    def _assemble_chunk(
         self,
-        paper: Paper,
-        query: UserQuery,
+        paper,
         claim: str,
-        target: str,
-        disease: str,
+        source_sentence_id: int,
         relation: dict,
-        source_sentence_id: Optional[str],
     ) -> KnowledgeChunk:
         return KnowledgeChunk(
-            chunk_id=str(uuid4()),
-            chunk_type="disease_target",
+            chunk_id=f"{paper.pmid}_{source_sentence_id}",
+            chunk_type="scientific_claim",
             pmid=paper.pmid,
-            query_id=query.query_id,
-            target=target,
-            disease=disease,
+            query_id=paper.query_id,
+            target=paper.target,
+            disease=paper.disease,
             claim=claim,
-            stance=relation["stance"],
-            effect=relation["effect"],
-            evidence_level=relation["evidence_level"],
             confidence=relation["confidence"],
+            evidence_level=relation["evidence_level"],
             metadata={
+                "stance_description": relation["stance_description"],
+                "effect_direction": relation["effect_direction"],
+                "effect_descriptor": relation["effect_descriptor"],
+                "outcome_measure": relation["outcome_measure"],
                 "paper_title": paper.title,
                 "journal": paper.journal,
                 "year": paper.year,
                 "source_sentence_id": source_sentence_id,
             },
         )
-
-    # ======================
-    # Validation
-    # ======================
-
-    def _validate_chunk(self, chunk: KnowledgeChunk) -> bool:
-        if not chunk.target or not chunk.disease:
-            return False
-        if not chunk.claim or len(chunk.claim.strip()) < 10:
-            return False
-        if chunk.confidence < self.config.min_confidence:
-            return False
-        return True
