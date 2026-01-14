@@ -1,6 +1,7 @@
 # app/core/llm.py
 
 from openai import OpenAI
+from app.config.env import UPSTAGE_API_KEY
 import os
 
 UPSTAGE_API_KEY = os.getenv("UPSTAGE_API_KEY")

@@ -1,37 +1,75 @@
 # app/agents/extractor/parser.py
 
+from __future__ import annotations
+
 import json
 from typing import Any, Dict, Optional
+from pydantic import BaseModel
+
+
+def _strip_code_fences(text: str) -> str:
+    s = (text or "").strip()
+    if s.startswith("```"):
+        lines = s.splitlines()[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        s = "\n".join(lines).strip()
+    return s
+
+
+def _extract_json_object(text: str) -> str:
+    s = _strip_code_fences(text)
+
+    try:
+        json.loads(s)
+        return s
+    except Exception:
+        pass
+
+    start, end = s.find("{"), s.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        candidate = s[start:end + 1].strip()
+        try:
+            json.loads(candidate)
+            return candidate
+        except json.JSONDecodeError as e:
+            raise ValueError("Invalid JSON object extracted from LLM response") from e
+
+    raise ValueError("Failed to locate valid JSON object in LLM response")
 
 
 def parse_json_response(text: str) -> Dict[str, Any]:
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Failed to parse JSON: {e}")
+    payload = _extract_json_object(text)
+    return json.loads(payload)
 
 
-def normalize_enum(
-    value: Optional[str],
-    allowed: set,
-    default: str,
-) -> str:
-    if not value:
-        return default
-    value = value.strip()
-    return value if value in allowed else default
+# ===== Models =====
+
+class EffectModel(BaseModel):
+    direction: Optional[str]
+    target_outcome: Optional[str]
+    rationale: Optional[str]
+    confidence: Optional[float]
 
 
-def normalize_optional_str(value: Any) -> Optional[str]:
-    if not value:
-        return None
-    value = str(value).strip()
-    return value if value else None
+class StanceModel(BaseModel):
+    polarity: Optional[str]
+    strength: Optional[str]
+    conditions: Optional[str]
 
 
-def clamp_confidence(value: Any, default: float = 0.5) -> float:
-    try:
-        v = float(value)
-        return max(0.0, min(1.0, v))
-    except Exception:
-        return default
+class SalienceModel(BaseModel):
+    level: Optional[str]
+    reason: Optional[str]
+
+
+class ExtractedClaim(BaseModel):
+    claim: str
+
+    effect: Optional[EffectModel]
+    stance: Optional[StanceModel]
+    salience: Optional[SalienceModel]
+
+    evidence_level: Optional[str]
+    confidence: Optional[float]
+    notes: Optional[str]

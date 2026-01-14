@@ -1,51 +1,54 @@
 # app/agents/extractor/prompts.py
 
 from __future__ import annotations
+from typing import List, Dict
 
-
-def extract_claims_prompt(abstract: str) -> str:
+def claim_extraction_prompt(sentence: list[dict]) -> str:
     return f"""
-    You are an expert scientific information extractor.
+    You are a scientific information extractor.
     
-    Given the following abstract, extract the key scientific claims.
-    Each claim should be a concise, standalone statement.
+    Task:
+    From the given sentence, extract a SINGLE scientific claim if present.
+    If the sentence is purely descriptive or methodological, still extract the claim as-is.
     
-    Abstract:
-    \"\"\"{abstract}\"\"\"
+    Then analyze the claim along the following dimensions.
     
-    Return STRICT JSON only:
+    Sentence:
+    \"\"\"{sentence}\"\"\"
+    
+    Return STRICT JSON only with the following structure:
+    
     {{
-      "claims": [
-        {{
-          "claim": string,
-          "source_sentence_id": number
-        }}
-      ]
-    }}
-    """.strip()
-
-
-def relation_inference_prompt(claim: str) -> str:
-    return f"""
-    You are an expert scientific reasoning model.
+      "claim": string,
     
-    Analyze the following claim and extract structured relational information.
+      "effect": {{
+        "direction": string | null,
+        "target_outcome": string | null,
+        "rationale": string | null,
+        "confidence": number | null
+      }},
+    
+      "stance": {{
+        "polarity": string,
+        "strength": string,
+        "conditions": string | null
+      }},
+    
+      "salience": {{
+        "level": string,
+        "reason": string
+      }},
+    
+      "evidence_level": string,
+      "confidence": number,
+      "notes": string | null
+    }}
     
     Guidelines:
-    - Preserve the semantic nuance of the claim.
-    - Only constrain effect_direction and evidence_level to the allowed values.
-    - confidence reflects your confidence in this structured extraction, not factual truth.
-    
-    Claim:
-    \"\"\"{claim}\"\"\"
-    
-    Return STRICT JSON only:
-    {{
-      "stance_description": string,
-      "effect_direction": "increase | decrease | modulate | no_significant_effect | unknown",
-      "effect_descriptor": string | null,
-      "outcome_measure": string | null,
-      "evidence_level": "in_vitro | in_vivo | clinical | review | unknown",
-      "confidence": number
-    }}
+    - Do NOT infer beyond the sentence.
+    - Use natural language for direction, polarity, strength, and level.
+    - If no effect is stated, set effect fields to null.
+    - Salience levels should reflect importance within the paper (high / medium / low).
+    - Evidence level examples: review, clinical, preclinical, unknown.
+    - Confidence should reflect how explicit the claim is.
     """.strip()
