@@ -52,7 +52,6 @@ const Dashboard = ({ onLogout }) => {
   const fileInputRef = useRef(null);
   const isInitializing = useRef(false);
 
-  // --- 초기화: 세션 목록 로드 ---
   useEffect(() => {
     const init = async () => {
       if (isInitializing.current) return;
@@ -67,24 +66,20 @@ const Dashboard = ({ onLogout }) => {
     init();
 
     const handleResize = () => {
-      if (window.innerWidth <= 1024) {
-        setIsSidebarOpen(false);
-        setIsRefPanelOpen(false);
-      } else {
-        setIsSidebarOpen(true);
-        setIsRefPanelOpen(true);
-      }
+      const isLarge = window.innerWidth > 1024;
+      setIsSidebarOpen(isLarge);
+      setIsRefPanelOpen(isLarge);
     };
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
   useEffect(() => {
-    if (scrollRef.current)
+    if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [messages, isWaiting, input]);
+    }
+  }, [messages, isWaiting]);
 
-  // --- 헬퍼: References 로드 (파일 및 검색된 논문) ---
   const fetchAndMergeReferences = async (sessionId) => {
     try {
       const [filesRes, candidatesRes, selectionsRes] = await Promise.all([
@@ -98,38 +93,29 @@ const Dashboard = ({ onLogout }) => {
       const selections = selectionsRes.data || [];
       const selectedIds = new Set(selections.map((s) => s.item_id));
 
-      const mappedFiles = uploadedFiles.map((f) => {
-        const ext = (
-          f.original_name.split(".").pop() ||
-          f.mime_type ||
-          "FILE"
-        ).toUpperCase();
-        return {
-          id: f.id,
-          title: f.original_name,
-          type: ext,
-          status: f.status,
-          checked: selectedIds.has(f.id),
-          isLocal: false,
-          isLoading: false,
-          itemType: "file",
-        };
-      });
+      const mappedFiles = uploadedFiles.map((f) => ({
+        id: f.id,
+        title: f.original_name,
+        type: (f.original_name.split(".").pop() || "FILE").toUpperCase(),
+        status: f.status,
+        checked: selectedIds.has(f.id),
+        isLocal: false,
+        isLoading: false,
+        itemType: "file",
+      }));
 
-      const mappedPapers = stagedPapers.map((p) => {
-        return {
-          id: p.id,
-          title: p.title,
-          type: "PDF",
-          status: "staged",
-          checked: selectedIds.has(p.id),
-          isLocal: false,
-          isLoading: false,
-          source: p.source,
-          itemType: "paper",
-          url: p.url,
-        };
-      });
+      const mappedPapers = stagedPapers.map((p) => ({
+        id: p.id,
+        title: p.title,
+        type: "PDF",
+        status: "staged",
+        checked: selectedIds.has(p.id),
+        isLocal: false,
+        isLoading: false,
+        source: p.source,
+        itemType: "paper",
+        url: p.url,
+      }));
 
       setReferences([...mappedFiles, ...mappedPapers]);
     } catch (err) {
@@ -137,10 +123,8 @@ const Dashboard = ({ onLogout }) => {
     }
   };
 
-  // --- 기능: 파일 즉시 업로드 및 자동 선택 ---
   const uploadFilesToSession = async (sessionId, files) => {
     if (!files || files.length === 0) return;
-
     const newRefs = Array.from(files).map((file, index) => ({
       id: `temp-${Date.now()}-${index}`,
       title: file.name,
@@ -153,28 +137,21 @@ const Dashboard = ({ onLogout }) => {
       itemType: "file",
     }));
     setReferences((prev) => [...prev, ...newRefs]);
-    if (!isRefPanelOpen) setIsRefPanelOpen(true);
-
     try {
       const fd = new FormData();
       Array.from(files).forEach((f) => fd.append("files", f));
-
       const res = await api.post(`/sessions/${sessionId}/files`, fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });
-      const uploadedItems = res.data || [];
-
-      for (const item of uploadedItems) {
+      for (const item of res.data || []) {
         await api.post(`/sessions/${sessionId}/selections/toggle`, {
           item_type: "uploaded_file",
           item_id: item.file_id,
         });
       }
-
       await fetchAndMergeReferences(sessionId);
     } catch (err) {
-      console.error("Upload failed", err);
-      alert("파일 업로드에 실패했습니다.");
+      alert("파일 업로드 실패");
       setReferences((prev) =>
         prev.filter((r) => !r.id.toString().startsWith("temp-"))
       );
@@ -186,9 +163,9 @@ const Dashboard = ({ onLogout }) => {
     let targetId = currentSessionId;
     if (!targetId) {
       try {
-        const createRes = await api.post("/sessions", { title: "New Session" });
-        targetId = createRes.data.id;
-        setSessions((prev) => [createRes.data, ...prev]);
+        const res = await api.post("/sessions", { title: "New Session" });
+        targetId = res.data.id;
+        setSessions((prev) => [res.data, ...prev]);
         setCurrentSessionId(targetId);
       } catch (err) {
         alert("세션 생성 실패");
@@ -198,41 +175,6 @@ const Dashboard = ({ onLogout }) => {
     await uploadFilesToSession(targetId, files);
   };
 
-  // --- 기능: 다운로드 / 외부 링크 열기 ---
-  const handleDownloadFile = async (e, ref) => {
-    e.stopPropagation();
-    if (!currentSessionId) return;
-    if (ref.isLocal) {
-      alert("파일이 업로드 중입니다. 잠시만 기다려주세요.");
-      return;
-    }
-    if (ref.itemType === "paper") {
-      if (ref.url) {
-        window.open(ref.url, "_blank", "noopener,noreferrer");
-      } else {
-        alert("논문 링크가 없습니다.");
-      }
-      return;
-    }
-    try {
-      const response = await api.get(
-        `/sessions/${currentSessionId}/files/${ref.id}/download`,
-        { responseType: "blob" }
-      );
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement("a");
-      link.href = url;
-      link.setAttribute("download", ref.title);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (err) {
-      alert("다운로드 실패");
-    }
-  };
-
-  // --- 기능: 스트림 처리 공통 로직 ---
   const processStream = async (response, targetId) => {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -257,12 +199,11 @@ const Dashboard = ({ onLogout }) => {
                   ...prev.slice(0, -1),
                   { ...lastMsg, content: step.content },
                 ];
-              } else {
-                return [
-                  ...prev,
-                  { role: "ai", content: step.content, isLog: true },
-                ];
               }
+              return [
+                ...prev,
+                { role: "ai", content: step.content, isLog: true },
+              ];
             });
           } else if (step.type === "proposal") {
             setMessages((prev) => [
@@ -272,9 +213,8 @@ const Dashboard = ({ onLogout }) => {
                 content: step.content,
                 isProposal: true,
                 analysisData: step.analysis,
-                agentType: step.analysis.instruction
-                  ? "extractor"
-                  : "retrieval",
+                // ✅ 서버에서 준 agent_type 혹은 현재 활성화된 탭 기준
+                agentType: step.analysis.agent_type || activeAgent,
               },
             ]);
           } else if (step.type === "result") {
@@ -284,7 +224,7 @@ const Dashboard = ({ onLogout }) => {
           } else if (step.type === "error") {
             setMessages((prev) => [
               ...prev,
-              { role: "ai", content: `오류: ${step.content}` },
+              { role: "ai", content: `❌ ${step.content}` },
             ]);
           }
         } catch (e) {
@@ -294,14 +234,12 @@ const Dashboard = ({ onLogout }) => {
     }
   };
 
-  // --- 확정 버튼 핸들러 (Research / Extractor) ---
   const handleConfirmResearch = async (analysisData) => {
     setMessages((prev) => [
       ...prev,
-      { role: "user", content: "네, 검색해 주세요." },
+      { role: "user", content: "네, 검색을 진행해 주세요." },
     ]);
     setIsWaiting(true);
-    const token = localStorage.getItem("token");
     try {
       const response = await fetch(
         `${api.defaults.baseURL}/sessions/${currentSessionId}/research`,
@@ -309,19 +247,16 @@ const Dashboard = ({ onLogout }) => {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
           },
           body: JSON.stringify({
-            query: "Confirmed Search",
-            top_k: 5,
+            query: "Confirmed",
             is_confirmed: true,
             confirmed_intent: analysisData,
           }),
         }
       );
       await processStream(response, currentSessionId);
-    } catch (e) {
-      console.error(e);
     } finally {
       setIsWaiting(false);
     }
@@ -330,10 +265,9 @@ const Dashboard = ({ onLogout }) => {
   const handleConfirmExtract = async (analysisData) => {
     setMessages((prev) => [
       ...prev,
-      { role: "user", content: "네, 추출해 주세요." },
+      { role: "user", content: "네, 정보 추출을 시작해 주세요." },
     ]);
     setIsWaiting(true);
-    const token = localStorage.getItem("token");
     try {
       const response = await fetch(
         `${api.defaults.baseURL}/sessions/${currentSessionId}/extract`,
@@ -341,7 +275,7 @@ const Dashboard = ({ onLogout }) => {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
           },
           body: JSON.stringify({
             instruction: "",
@@ -351,14 +285,38 @@ const Dashboard = ({ onLogout }) => {
         }
       );
       await processStream(response, currentSessionId);
-    } catch (e) {
-      console.error(e);
     } finally {
       setIsWaiting(false);
     }
   };
 
-  // --- 메인 메시지 전송 ---
+  const handleConfirmReport = async () => {
+    setMessages((prev) => [
+      ...prev,
+      { role: "user", content: "네, 보고서를 작성해 주세요." },
+    ]);
+    setIsWaiting(true);
+    try {
+      const response = await fetch(
+        `${api.defaults.baseURL}/sessions/${currentSessionId}/report`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+          body: JSON.stringify({
+            prompt: "Confirmed Report",
+            is_confirmed: true,
+          }),
+        }
+      );
+      await processStream(response, currentSessionId);
+    } finally {
+      setIsWaiting(false);
+    }
+  };
+
   const handleSendMessage = async () => {
     if (!input.trim() || isWaiting) return;
     const userContent = input.trim();
@@ -371,17 +329,16 @@ const Dashboard = ({ onLogout }) => {
       let targetId = currentSessionId;
       if (!targetId) {
         const res = await api.post("/sessions", {
-          title: userContent.substring(0, 15) || "New Session",
+          title: userContent.substring(0, 15),
         });
         targetId = res.data.id;
         setSessions((prev) => [res.data, ...prev]);
         setCurrentSessionId(targetId);
       }
-
+      const token = localStorage.getItem("token");
       const serverRefIds = references
         .filter((r) => !r.isLocal && r.checked)
         .map((r) => r.id);
-      const token = localStorage.getItem("token");
 
       if (activeAgent === "general") {
         const res = await api.post(`/sessions/${targetId}/chat`, {
@@ -422,32 +379,34 @@ const Dashboard = ({ onLogout }) => {
         );
         await processStream(response, targetId);
       } else if (activeAgent === "synthesizer") {
-        const res = await api.post(`/sessions/${targetId}/report`, {
-          prompt: userContent,
-        });
-        setMessages((prev) => [
-          ...prev,
-          { role: "ai", content: res.data.content },
-        ]);
+        const response = await fetch(
+          `${api.defaults.baseURL}/sessions/${targetId}/report`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ prompt: userContent, is_confirmed: false }),
+          }
+        );
+        await processStream(response, targetId);
       }
-
-      if (activeAgent !== "retrieval" && activeAgent !== "extractor") {
+      if (activeAgent === "general") {
         const msgRes = await api.get(`/sessions/${targetId}/messages`);
         setMessages(msgRes.data);
         fetchAndMergeReferences(targetId);
       }
     } catch (err) {
-      console.error(err);
       setMessages((prev) => [
         ...prev,
-        { role: "ai", content: "오류가 발생했습니다." },
+        { role: "ai", content: "서버 통신 중 오류가 발생했습니다." },
       ]);
     } finally {
       setIsWaiting(false);
     }
   };
 
-  // --- 세션 및 참조 관리 핸들러 ---
   const handleSelectSession = async (id) => {
     setCurrentSessionId(id);
     setReferences([]);
@@ -467,7 +426,6 @@ const Dashboard = ({ onLogout }) => {
     setReferences([]);
     setInput("");
     setActiveAgent("general");
-    if (textareaRef.current) textareaRef.current.focus();
   };
 
   const handleDeleteSession = async (e, id) => {
@@ -482,28 +440,12 @@ const Dashboard = ({ onLogout }) => {
     }
   };
 
-  const removeReference = async (id, isLocal) => {
-    if (isLocal) setReferences((prev) => prev.filter((r) => r.id !== id));
-    else {
-      if (!currentSessionId || !window.confirm("삭제하시겠습니까?")) return;
-      try {
-        const target = references.find((r) => r.id === id);
-        if (target?.itemType === "file")
-          await api.delete(`/sessions/${currentSessionId}/files/${id}`);
-        setReferences((prev) => prev.filter((r) => r.id !== id));
-      } catch (err) {
-        alert("삭제 오류");
-      }
-    }
-  };
-
   const toggleReference = async (id) => {
     const target = references.find((r) => r.id === id);
-    if (!target) return;
+    if (!target || target.isLocal) return;
     setReferences((prev) =>
       prev.map((r) => (r.id === id ? { ...r, checked: !r.checked } : r))
     );
-    if (target.isLocal) return;
     try {
       await api.post(`/sessions/${currentSessionId}/selections/toggle`, {
         item_type:
@@ -517,12 +459,35 @@ const Dashboard = ({ onLogout }) => {
     }
   };
 
-  const handleInputResize = (e) => {
-    setInput(e.target.value);
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+  const renderProposalButton = (m) => {
+    // ✅ 명시적인 agentType 판별 (synthesizer 우선)
+    const isSynthesizer = m.agentType === "synthesizer";
+    const isExtractor = m.agentType === "extractor";
+    const isRetrieval = m.agentType === "retrieval";
+
+    let label = "실행";
+    let handler = () => {};
+
+    if (isSynthesizer) {
+      label = "보고서 작성 시작";
+      handler = handleConfirmReport;
+    } else if (isExtractor) {
+      label = "정보 추출 시작";
+      handler = () => handleConfirmExtract(m.analysisData);
+    } else if (isRetrieval) {
+      label = "문헌 검색 시작";
+      handler = () => handleConfirmResearch(m.analysisData);
     }
+
+    return (
+      <button
+        className="proposal-btn confirm"
+        onClick={handler}
+        disabled={isWaiting}
+      >
+        <Play size={14} /> {label}
+      </button>
+    );
   };
 
   const activeAgentColor =
@@ -530,12 +495,6 @@ const Dashboard = ({ onLogout }) => {
 
   return (
     <div className="dashboard-container">
-      {isSidebarOpen && window.innerWidth <= 768 && (
-        <div
-          className="mobile-overlay"
-          onClick={() => setIsSidebarOpen(false)}
-        />
-      )}
       <aside className={`sidebar ${!isSidebarOpen ? "closed" : ""}`}>
         <div className="sidebar-header">
           <div className="sidebar-title">
@@ -562,7 +521,7 @@ const Dashboard = ({ onLogout }) => {
               onClick={() => handleSelectSession(s.id)}
             >
               <div className="chat-item-info">
-                <MessageSquare size={18} />
+                <MessageSquare size={18} />{" "}
                 <span className="session-title">{s.title}</span>
               </div>
               <Trash2
@@ -603,7 +562,7 @@ const Dashboard = ({ onLogout }) => {
                 style={{ marginBottom: 20, opacity: 0.2 }}
               />
               <h3>Target Validation Assistant</h3>
-              <p>원하는 에이전트를 선택하고 연구를 시작하세요.</p>
+              <p>에이전트를 선택하고 연구를 시작하세요.</p>
             </div>
           )}
           {messages.map((m, i) => (
@@ -618,20 +577,7 @@ const Dashboard = ({ onLogout }) => {
                   </ReactMarkdown>
                   {m.isProposal && (
                     <div style={{ marginTop: "10px" }}>
-                      <button
-                        className="proposal-btn confirm"
-                        onClick={() =>
-                          m.agentType === "extractor"
-                            ? handleConfirmExtract(m.analysisData)
-                            : handleConfirmResearch(m.analysisData)
-                        }
-                        disabled={isWaiting}
-                      >
-                        <Play size={14} />{" "}
-                        {m.agentType === "extractor"
-                          ? "추출 시작"
-                          : "검색 시작"}
-                      </button>
+                      {renderProposalButton(m)}
                     </div>
                   )}
                 </div>
@@ -675,12 +621,17 @@ const Dashboard = ({ onLogout }) => {
               ref={textareaRef}
               className="main-text-input"
               value={input}
-              onChange={handleInputResize}
-              onKeyDown={(e) =>
-                e.key === "Enter" &&
-                !e.shiftKey &&
-                (e.preventDefault(), handleSendMessage())
-              }
+              onChange={(e) => {
+                setInput(e.target.value);
+                e.target.style.height = "auto";
+                e.target.style.height = `${e.target.scrollHeight}px`;
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSendMessage();
+                }
+              }}
               placeholder={`${
                 AGENTS.find((a) => a.id === activeAgent).name
               }에게 질문하기...`}
@@ -744,12 +695,7 @@ const Dashboard = ({ onLogout }) => {
         <div className="reference-list">
           {references.length === 0 ? (
             <div className="empty-ref">
-              <Search size={32} />{" "}
-              <p>
-                파일을 드래그하거나
-                <br />
-                업로드 버튼을 누르세요.
-              </p>
+              <Search size={32} /> <p>파일을 업로드하세요.</p>
             </div>
           ) : (
             references.map((ref) => (
@@ -784,48 +730,18 @@ const Dashboard = ({ onLogout }) => {
                       }`}
                     >
                       {ref.type}
-                    </span>{" "}
+                    </span>
                     {ref.status === "indexed" && (
                       <span className="status-indexed">
                         <CheckCircle2 size={10} /> Analyzed
                       </span>
                     )}
                   </div>
-                  <p className="ref-title" title={ref.title}>
-                    {ref.title}
-                  </p>
-                </div>
-                <div className="ref-actions">
-                  <button
-                    className="ref-action-btn download"
-                    onClick={(e) => handleDownloadFile(e, ref)}
-                    title={ref.itemType === "paper" ? "Open Link" : "Download"}
-                  >
-                    {ref.itemType === "paper" ? (
-                      <ExternalLink size={14} />
-                    ) : (
-                      <Download size={14} />
-                    )}
-                  </button>
-                  <button
-                    className="ref-action-btn delete"
-                    onClick={(e) => (
-                      e.stopPropagation(), removeReference(ref.id, ref.isLocal)
-                    )}
-                    title="Remove"
-                  >
-                    <X size={14} />
-                  </button>
+                  <p className="ref-title">{ref.title}</p>
                 </div>
               </div>
             ))
           )}
-        </div>
-        <div className="right-sidebar-footer">
-          <div className="footer-info">
-            <CheckSquare size={14} />{" "}
-            <span>Selected: {references.filter((r) => r.checked).length}</span>
-          </div>
         </div>
       </aside>
     </div>
