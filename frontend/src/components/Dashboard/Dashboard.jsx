@@ -1,823 +1,982 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  useMemo,
+} from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
-  Microscope, Plus, Zap, FileUp, CheckCircle2,
-  X, Send, Sparkles, Cpu, Play, Download, ExternalLink,
-  Loader2, Layout, LogOut, ClipboardCheck, Ban
+  Microscope,
+  Plus,
+  Zap,
+  FileUp,
+  CheckCircle2,
+  X,
+  Send,
+  Sparkles,
+  Cpu,
+  Play,
+  ExternalLink,
+  Loader2,
+  LogOut,
+  ClipboardCheck,
 } from "lucide-react";
 import api from "../../api";
 import "./Dashboard.css";
+import PdfAnalyzer from "./PdfAnalyzer";
 
 // ==================================================================================
-// [Micro Component] FileListItem (유지)
+// [Component 1] LeftPanel: 세션 및 라이브러리 관리
 // ==================================================================================
-const FileListItem = React.memo(({ item, isActive, onSelect, onToggle, onDelete }) => {
-  const handleToggle = (e) => { e.stopPropagation(); onToggle(item); };
-  const handleDelete = (e) => { e.stopPropagation(); onDelete(item); };
-  const handleSelect = () => onSelect(item);
+const LeftPanel = React.memo(
+  ({
+    sessions,
+    currentSessionId,
+    leftTab,
+    setLeftTab,
+    references,
+    viewingRef,
+    onSelectSession,
+    onCreateSessionTrigger,
+    onToggleRef,
+    onRemoveRef,
+    onSelectRef,
+    onUploadTrigger,
+    onRetrievalTrigger,
+    onLogout,
+  }) => {
+    const fileInputRef = useRef(null);
 
-  return (
-    <div className={`item-card ${isActive ? "active" : ""}`} onClick={handleSelect}>
-      <button className="delete-btn" onClick={handleDelete}><X size={12}/></button>
-      <div className="card-content">
-        <div className={`checkbox-icon ${item.checked ? "checked" : ""}`} onClick={handleToggle}>
-          {item.checked ? <CheckCircle2 size={18}/> : <div style={{width:'16px', height:'16px', border:'2px solid #cbd5e1', borderRadius:'50%'}}></div>}
-        </div>
-        <div className="item-info">
-          <div className="item-title">{item.title}</div>
-          <div className="item-meta">
-            <span className="badge">{item.itemType}</span>
-            {(item.status === "indexed" || item.status === "analyzed") && <span className="badge analyzed">Analyzed</span>}
-            {item.status === "uploading" && <span className="badge" style={{color: 'orange'}}>Uploading...</span>}
+    return (
+      <section className="left-panel">
+        <div className="brand-header">
+          <div className="logo-box">
+            <Microscope size={22} color="white" />
+          </div>
+          <div className="brand-text">
+            <h1>TV-A</h1>
+            <p>Bio-Terminal</p>
           </div>
         </div>
-      </div>
-    </div>
-  );
-}, (prev, next) => {
-  return (
-    prev.isActive === next.isActive &&
-    prev.item.checked === next.item.checked &&
-    prev.item.title === next.item.title &&
-    prev.item.status === next.item.status
-  );
-});
-
-// ==================================================================================
-// [Component 1] LeftPanel
-// ==================================================================================
-const LeftPanel = React.memo(({
-  sessions, currentSessionId, leftTab, setLeftTab,
-  references, viewingRef,
-  onSelectSession, onCreateSessionTrigger, 
-  onToggleRef, onRemoveRef, onSelectRef,
-  onUploadTrigger, onRetrievalTrigger, onLogout
-}) => {
-  const fileInputRef = useRef(null);
-
-  const handleUploadChange = (e) => {
-    if (e.target.files && e.target.files.length > 0) {
-      onUploadTrigger(e.target.files);
-    }
-  };
-
-  return (
-    <section className="left-panel">
-      <div className="brand-header">
-        <div className="logo-box"><Microscope size={22} color="white"/></div>
-        <div className="brand-text"><h1>TV-A</h1><p>Bio-Terminal</p></div>
-      </div>
-      <div className="session-info">
-        <p className="session-label">Current Session</p>
-        <p className="session-value">{sessions.find(s=>s.id===currentSessionId)?.title || "Select Session"}</p>
-      </div>
-      <div className="tab-container">
-        <div className="tab-group">
-          {["session", "library", "report"].map(tab => (
-            <button key={tab} onClick={() => setLeftTab(tab)} className={`tab-btn ${leftTab === tab ? "active" : ""}`}>{tab}</button>
-          ))}
+        <div className="session-info">
+          <p className="session-label">Current Session</p>
+          <p className="session-value">
+            {sessions.find((s) => s.id === currentSessionId)?.title ||
+              "Select Session"}
+          </p>
         </div>
-      </div>
-      <div className="list-area custom-scrollbar">
-        {leftTab === "session" && (
-          <>
-            <button className="btn-secondary" onClick={onCreateSessionTrigger}><Plus size={14}/> New Session</button>
-            {sessions.map(s => (
-              <div key={s.id} onClick={() => onSelectSession(s.id)} className={`item-card ${currentSessionId === s.id ? "active" : ""}`}>
-                <div className="card-content">
-                  <div className="item-info">
-                    <div className="item-title">{s.title}</div>
-                    <div className="item-meta"><span className="badge">{new Date(s.created_at).toLocaleDateString()}</span></div>
+        <div className="tab-container">
+          <div className="tab-group">
+            {["session", "library", "report"].map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setLeftTab(tab)}
+                className={`tab-btn ${leftTab === tab ? "active" : ""}`}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="list-area custom-scrollbar">
+          {leftTab === "session" && (
+            <>
+              <button
+                className="btn-secondary"
+                onClick={onCreateSessionTrigger}
+              >
+                <Plus size={14} /> New Session
+              </button>
+              {sessions.map((s) => (
+                <div
+                  key={s.id}
+                  onClick={() => onSelectSession(s.id)}
+                  className={`item-card ${
+                    currentSessionId === s.id ? "active" : ""
+                  }`}
+                >
+                  <div className="card-content">
+                    <div className="item-info">
+                      <div className="item-title">{s.title}</div>
+                      <div className="item-meta">
+                        <span className="badge">
+                          {new Date(s.created_at).toLocaleDateString()}
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 </div>
+              ))}
+            </>
+          )}
+          {leftTab === "library" && (
+            <>
+              <button
+                className="btn-primary"
+                style={{ width: "100%", marginBottom: "10px" }}
+                onClick={onRetrievalTrigger}
+                disabled={!currentSessionId}
+                title={!currentSessionId ? "세션을 먼저 선택하세요" : undefined}
+              >
+                <Zap size={14} /> Retrieval Agent
+              </button>
+              <div className="upload-group">
+                <button
+                  className="btn-secondary"
+                  style={{ width: "100%" }}
+                  onClick={() =>
+                    currentSessionId && fileInputRef.current.click()
+                  }
+                  disabled={!currentSessionId}
+                  title={
+                    !currentSessionId ? "세션을 먼저 선택하세요" : undefined
+                  }
+                >
+                  <FileUp size={14} /> Local File Upload
+                </button>
+                <input
+                  type="file"
+                  multiple
+                  hidden
+                  ref={fileInputRef}
+                  onChange={(e) => {
+                    const files = e.target.files;
+                    if (files && files.length) onUploadTrigger(files);
+                    // allow selecting same file again
+                    e.target.value = "";
+                  }}
+                />
               </div>
-            ))}
-          </>
-        )}
-        {leftTab === "library" && (
-          <>
-            <button className="btn-primary" onClick={onRetrievalTrigger}><Zap size={14}/> Retrieval Agent</button>
-            <div className="upload-group">
-              <button className="btn-secondary" style={{marginBottom:0}} onClick={() => fileInputRef.current.click()}><FileUp size={14}/> Upload</button>
-              <input type="file" multiple hidden ref={fileInputRef} onChange={handleUploadChange} />
-            </div>
-            
-            {references.map(ref => (
-              <FileListItem 
-                key={ref.id}
-                item={ref}
-                isActive={viewingRef?.id === ref.id}
-                onSelect={onSelectRef}
-                onToggle={onToggleRef}
-                onDelete={onRemoveRef}
+              {references.map((ref) => (
+                <div
+                  key={ref.id}
+                  className={`item-card ${
+                    viewingRef?.id === ref.id ? "active" : ""
+                  }`}
+                  onClick={() => onSelectRef(ref)}
+                >
+                  <button
+                    className="delete-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRemoveRef(ref);
+                    }}
+                  >
+                    <X size={12} />
+                  </button>
+                  <div className="card-content">
+                    <div
+                      className={`checkbox-icon ${
+                        ref.checked ? "checked" : ""
+                      }`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleRef(ref);
+                      }}
+                    >
+                      {ref.checked ? (
+                        <CheckCircle2 size={18} />
+                      ) : (
+                        <div
+                          style={{
+                            width: "16px",
+                            height: "16px",
+                            border: "2px solid #cbd5e1",
+                            borderRadius: "50%",
+                          }}
+                        ></div>
+                      )}
+                    </div>
+                    <div className="item-info">
+                      <div className="item-title">{ref.title}</div>
+                      <div className="item-meta">
+                        <span className="badge">{ref.itemType}</span>
+                        {ref.status === "indexed" && (
+                          <span className="badge analyzed">Analyzed</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+          {leftTab === "report" && (
+            <div className="empty-state">
+              <ClipboardCheck
+                size={32}
+                style={{ opacity: 0.3, marginBottom: "12px" }}
               />
-            ))}
-          </>
-        )}
-        {leftTab === "report" && (
-          <div className="empty-state">
-            <ClipboardCheck size={32} style={{opacity:0.3, marginBottom:'12px'}}/>
-            <p style={{fontSize:'12px'}}>Reports will be archived here.</p>
-          </div>
-        )}
-      </div>
-      <div className="panel-footer">
-        <button className="logout-btn" onClick={onLogout}><LogOut size={14}/> Logout</button>
-        <div className="sync-badge"><div className="status-dot"></div>Synced</div>
-      </div>
-    </section>
-  );
-});
+              <p style={{ fontSize: "12px" }}>Reports will be archived here.</p>
+            </div>
+          )}
+        </div>
+        <div className="panel-footer">
+          <button className="logout-btn" onClick={onLogout}>
+            <LogOut size={14} /> Logout
+          </button>
+        </div>
+      </section>
+    );
+  }
+);
 
 // ==================================================================================
-// [Component 2] CenterPanel
+// [Component 2] CenterPanel: PDF 뷰어 및 요약 표시 (핵심 수정)
 // ==================================================================================
-const CenterPanel = React.memo(({ 
-  viewingRef, centerTab, setCenterTab, 
-  pdfUrl, isPdfLoading, summaryContent, isSummaryLoading,
-  onDownload 
-}) => {
-  // 요약과 초록 분리 마커
-  const SUMMARY_MARKER = "\n\n---SUMMARY_SECTION---\n";
-  const cleanAbstract = viewingRef?.abstract?.split(SUMMARY_MARKER)[0] || "내용 없음";
-
-  return (
-    <section className="center-panel">
-      <div className="center-header">
-        <button onClick={() => setCenterTab("original")} className={`nav-tab ${centerTab === "original" ? "active" : ""}`}>Original Paper</button>
-        <button onClick={() => setCenterTab("analysis")} className={`nav-tab ${centerTab === "analysis" ? "active" : ""}`}>Paper Analysis</button>
-        <button onClick={() => setCenterTab("summary")} className={`nav-tab ${centerTab === "summary" ? "active" : ""}`}>Summary</button>
-      </div>
-      <div className="content-area custom-scrollbar">
-        {viewingRef ? (
-          <>
-            {/* 1. Original Paper (PDF 뷰어) */}
-            {centerTab === "original" && (
-               <div className="pdf-viewer-container">
-                 {isPdfLoading ? (
-                   <div className="loading-state"><Loader2 className="animate-spin" size={32}/></div>
-                 ) : viewingRef.hasPdf && pdfUrl ? (
-                   <iframe src={pdfUrl} className="pdf-frame" title="PDF Viewer" />
-                 ) : (
-                   <div className="doc-paper">
-                     <div className="doc-header-meta">PDF Unavailable</div>
-                     <h1 className="doc-headline">{viewingRef.title}</h1>
-                     <div className="doc-body">{cleanAbstract}</div>
-                   </div>
-                 )}
-               </div>
-            )}
-
-            {/* 2. Paper Analysis (분석 정보) */}
-            {centerTab === "analysis" && (
-              <div className="doc-paper animate-in">
-                <span className="doc-header-meta">{viewingRef.type} Analysis</span>
-                <h1 className="doc-headline">{viewingRef.title}</h1>
-                <div className="section-title">Abstract</div>
-                <div className="doc-body">{cleanAbstract}</div>
-              </div>
-            )}
-
-            {/* 3. Summary (🔥 핵심: Uploaded File과 동일한 '종이' 디자인 적용) */}
-            {centerTab === "summary" && (
-              <div className="summary-view" style={{ padding: '0' }}>
-                {isSummaryLoading ? (
-                  <div className="loading-state" style={{ height: '300px' }}>
-                    <Loader2 className="animate-spin" size={24} color="var(--primary)"/>
-                    <p>Fetching Executive Summary...</p>
-                  </div>
-                ) : (
-                  <div className="doc-paper animate-in" style={{ 
-                    maxWidth: '850px', 
-                    margin: '0 auto', 
-                    boxShadow: '0 10px 25px rgba(0,0,0,0.05)',
-                    border: '1px solid var(--border)' 
-                  }}>
-                    <div className="doc-header-meta" style={{ display:'flex', justifyContent:'space-between' }}>
-                      <span>Executive Summary Report</span>
-                      <span className="badge analyzed">AI GENERATED</span>
+const CenterPanel = React.memo(
+  ({
+    viewingRef,
+    centerTab,
+    setCenterTab,
+    pdfUrl,
+    isPdfLoading,
+    summaryContent,
+    isSummaryLoading,
+    highlightText,
+  }) => {
+    return (
+      <section className="center-panel">
+        <div className="center-header">
+          {["original", "analysis", "summary"].map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setCenterTab(tab)}
+              className={`nav-tab ${centerTab === tab ? "active" : ""}`}
+            >
+              {tab.toUpperCase()}
+            </button>
+          ))}
+        </div>
+        <div className="content-area custom-scrollbar">
+          {!viewingRef ? (
+            <div className="empty-state">문서를 선택해 주세요.</div>
+          ) : (
+            <div style={{ height: "100%" }}>
+              {centerTab === "original" && (
+                <div
+                  className="pdf-viewer-container"
+                  style={{ height: "100%" }}
+                >
+                  {isPdfLoading ? (
+                    <div className="loading-state">
+                      <Loader2 className="animate-spin" size={32} />
                     </div>
-                    <div className="markdown-body" style={{ marginTop: '20px' }}>
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {summaryContent || "분석된 요약 내용이 없습니다."}
-                      </ReactMarkdown>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </>
-        ) : (
-          <div className="empty-state">문서를 선택해 주세요.</div>
-        )}
-      </div>
-    </section>
-  );
-});
-
-// ==================================================================================
-// [Component 3] RightPanel (Chat Logic + Streaming)
-// ==================================================================================
-const ChatView = React.memo(({ messages, isWaiting, onConfirmAction, onCancelAction }) => {
-  const scrollRef = useRef(null);
-
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages, isWaiting]);
-
-  return (
-    <div className="chat-area custom-scrollbar" ref={scrollRef}>
-      {messages.map((m, i) => (
-        <div key={i} className={`msg-row ${m.role}`}>
-          {m.role === "ai" && <div className="ai-avatar"><Cpu size={18}/></div>}
-          <div className={`msg-bubble ${m.role} ${m.isLog ? "log" : ""}`}>
-            {m.isLog ? (
-              <>
-                <Loader2 className="animate-spin" size={14} />
-                <span>{m.content}</span>
-              </>
-            ) : (
-              m.role === "ai" ? (
-                <div className="markdown-body">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content || ""}</ReactMarkdown>
-                  {m.isProposal && (
-                    <div className="proposal-actions">
-                      <button className="proposal-btn confirm" onClick={() => onConfirmAction(m.agentType, m.analysisData)}>
-                        <Play size={12}/> {m.agentType === "retrieval" ? "검색 실행" : "진행"}
-                      </button>
-                      <button className="proposal-btn cancel" onClick={onCancelAction}>
-                        <X size={12}/> 취소
-                      </button>
+                  ) : pdfUrl ? (
+                    <iframe
+                      src={pdfUrl}
+                      className="pdf-frame"
+                      title="PDF-Original"
+                    />
+                  ) : (
+                    <div className="doc-paper">
+                      <h1>{viewingRef.title}</h1>
+                      <p>
+                        {viewingRef.abstract || "PDF를 불러올 수 없습니다."}
+                      </p>
                     </div>
                   )}
                 </div>
-              ) : (
-                m.content
-              )
-            )}
+              )}
+              {centerTab === "analysis" && (
+                <div
+                  className="pdf-viewer-container"
+                  style={{ height: "100%" }}
+                >
+                  {isPdfLoading ? (
+                    <div className="loading-state">
+                      <Loader2 className="animate-spin" size={32} />
+                    </div>
+                  ) : pdfUrl ? (
+                    <PdfAnalyzer
+                      fileUrl={pdfUrl}
+                      highlightText={highlightText}
+                    />
+                  ) : (
+                    <div className="doc-paper">
+                      <h1>{viewingRef.title}</h1>
+                      <p>분석 가능한 본문 데이터가 없습니다.</p>
+                    </div>
+                  )}
+                </div>
+              )}
+              {centerTab === "summary" && (
+                <div className="summary-view" style={{ height: "100%" }}>
+                  {isSummaryLoading ? (
+                    <div className="loading-state">
+                      <Loader2 className="animate-spin" size={32} />
+                    </div>
+                  ) : (
+                    <div className="doc-paper">
+                      <div className="doc-header-meta">
+                        AI Generated Summary
+                      </div>
+                      <div
+                        className="markdown-body"
+                        style={{ marginTop: "20px" }}
+                      >
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {summaryContent ||
+                            "이 파일에 대해 생성된 요약 정보가 아직 없습니다. 분석이 완료될 때까지 기다려 주세요."}
+                        </ReactMarkdown>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </section>
+    );
+  }
+);
+
+// ==================================================================================
+// [Component 3] RightPanel: 채팅 에이전트
+// ==================================================================================
+const RightPanel = React.memo(
+  ({
+    messages,
+    isWaiting,
+    onSendMessage,
+    onExecuteHighlight,
+    onConfirmAction,
+    onCancelAction,
+  }) => {
+    const scrollRef = useRef(null);
+    useEffect(() => {
+      if (scrollRef.current)
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }, [messages]);
+
+    return (
+      <section className="right-panel">
+        <div className="agent-header">
+          <div className="agent-info">
+            <Sparkles size={16} />
+            <span className="agent-name">Bio-Insight Agent</span>
           </div>
         </div>
-      ))}
-    </div>
-  );
-});
-
-const ChatInput = React.memo(({ isWaiting, onSendMessage }) => {
-  const [localInput, setLocalInput] = useState("");
-  const textareaRef = useRef(null);
-
-  const handleInputResize = (e) => {
-    setLocalInput(e.target.value);
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 120)}px`;
-    }
-  };
-
-  const handleSendTrigger = () => {
-    if(!localInput.trim()) return;
-    onSendMessage(localInput);
-    setLocalInput("");
-    if(textareaRef.current) textareaRef.current.style.height = "auto";
-  };
-
-  return (
-    <div className="input-area">
-      <div className={`input-wrapper ${isWaiting ? 'disabled' : ''}`}>
-        <textarea 
-          ref={textareaRef}
-          className="chat-textarea custom-scrollbar"
-          placeholder={isWaiting ? "Processing..." : "Ask a research question..."}
-          rows={1}
-          value={localInput}
-          onChange={handleInputResize}
-          onKeyDown={e => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), handleSendTrigger())}
-          disabled={isWaiting}
-        />
-        <button className="send-icon-btn" onClick={handleSendTrigger} disabled={isWaiting}>
-          <Send size={16}/>
-        </button>
-      </div>
-    </div>
-  );
-});
-
-const RightPanel = React.memo(({ 
-  messages, isWaiting, 
-  onSendMessage, onConfirmAction, onCancelAction 
-}) => {
-  return (
-    <section className="right-panel">
-      <div className="agent-header">
-        <div className="agent-info">
-          <Sparkles size={16} className="text-teal-500"/>
-          <span className="agent-name">Bio-Insight Agent</span>
-          <span className="agent-version">v2.4</span>
+        <div className="chat-area custom-scrollbar" ref={scrollRef}>
+          {messages.map((m, i) => (
+            <div key={i} className={`msg-row ${m.role}`}>
+              {m.role === "ai" && (
+                <div className="ai-avatar">
+                  <Cpu size={18} />
+                </div>
+              )}
+              <div className={`msg-bubble ${m.role}`}>
+                <div className="markdown-body">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {m.content}
+                  </ReactMarkdown>
+                  {m.isProposal && (
+                    <div
+                      style={{ display: "flex", gap: "8px", marginTop: "10px" }}
+                    >
+                      <button
+                        className="mini-btn"
+                        onClick={() =>
+                          onConfirmAction?.(m.agentType, m.analysisData)
+                        }
+                        disabled={isWaiting}
+                      >
+                        <Play size={12} /> Confirm
+                      </button>
+                      <button
+                        className="mini-btn"
+                        onClick={() => onCancelAction?.()}
+                        disabled={isWaiting}
+                      >
+                        <X size={12} /> Cancel
+                      </button>
+                    </div>
+                  )}
+                  {m.evidence && (
+                    <button
+                      className="mini-btn"
+                      style={{ marginTop: "8px" }}
+                      onClick={() => onExecuteHighlight(m.evidence)}
+                    >
+                      <ExternalLink size={12} /> 본문 근거 확인
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+          {isWaiting && (
+            <div className="msg-row ai">
+              <div className="ai-avatar">
+                <Loader2 className="animate-spin" size={18} />
+              </div>
+              <div className="msg-bubble ai">생각 중...</div>
+            </div>
+          )}
         </div>
-        <div className="confidence-box">
-          <span>Confidence: 82%</span>
-          <div className="progress-bar"><div className="progress-val"></div></div>
+        <div className="input-area">
+          <div className={`input-wrapper ${isWaiting ? "disabled" : ""}`}>
+            <textarea
+              className="chat-textarea"
+              placeholder="연구 데이터에 대해 질문하세요..."
+              rows={1}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  onSendMessage(e.target.value);
+                  e.target.value = "";
+                }
+              }}
+              disabled={isWaiting}
+            />
+            <button className="send-icon-btn" disabled={isWaiting}>
+              <Send size={16} />
+            </button>
+          </div>
         </div>
-      </div>
-
-      <ChatView 
-        messages={messages}
-        isWaiting={isWaiting}
-        onConfirmAction={onConfirmAction}
-        onCancelAction={onCancelAction}
-      />
-      <ChatInput 
-        isWaiting={isWaiting}
-        onSendMessage={onSendMessage}
-      />
-    </section>
-  );
-});
-
+      </section>
+    );
+  }
+);
 
 // ==================================================================================
-// [Main] Dashboard
+// [Main] Dashboard: 로직 통합
 // ==================================================================================
 const Dashboard = ({ onLogout }) => {
+  const [highlightText, setHighlightText] = useState("");
   const [sessions, setSessions] = useState([]);
   const [currentSessionId, setCurrentSessionId] = useState(null);
   const [messages, setMessages] = useState([]);
-  const [references, setReferences] = useState([]); 
-  
-  // UI State
-  const [leftTab, setLeftTab] = useState("session"); 
+  const [references, setReferences] = useState([]);
+  const [leftTab, setLeftTab] = useState("library");
   const [centerTab, setCenterTab] = useState("analysis");
   const [viewingRef, setViewingRef] = useState(null);
   const [pdfUrl, setPdfUrl] = useState(null);
   const [isPdfLoading, setIsPdfLoading] = useState(false);
   const [summaryContent, setSummaryContent] = useState("");
   const [isSummaryLoading, setIsSummaryLoading] = useState(false);
-
-  // Modals & Inputs
-  const [showSessionModal, setShowSessionModal] = useState(false);
-  const [showRetrievalModal, setShowRetrievalModal] = useState(false);
-  const [newSessionTitle, setNewSessionTitle] = useState("");
-  const [retrievalQuery, setRetrievalQuery] = useState("");
   const [isWaiting, setIsWaiting] = useState(false);
-  
-  // Shield Ref
-  const pendingActionsRef = useRef({ toggling: new Set(), deleting: new Set() });
+  const [showRetrievalModal, setShowRetrievalModal] = useState(false);
+  const [retrievalQuery, setRetrievalQuery] = useState("");
 
+  // 세션 데이터 로드
+  const fetchSessionData = useCallback(async (sessionId) => {
+    if (!sessionId) return;
+    try {
+      const [msgRes, filesRes, candidatesRes, selectionsRes] =
+        await Promise.all([
+          api.get(`/sessions/${sessionId}/messages`),
+          api.get(`/sessions/${sessionId}/files`),
+          api.get(`/sessions/${sessionId}/research/candidates`),
+          api.get(`/sessions/${sessionId}/selections`),
+        ]);
+      setMessages(msgRes.data || []);
+      const selectedIds = new Set(
+        (selectionsRes.data || []).map((s) => s.item_id)
+      );
+      const process = (items, type) =>
+        items.map((item) => ({
+          id: item.id || item.file_id,
+          title: type === "file" ? item.original_name : item.title,
+          itemType: type,
+          status: item.status,
+          abstract: item.abstract,
+          checked: selectedIds.has(item.id || item.file_id),
+        }));
+      setReferences([
+        ...process(filesRes.data || [], "file"),
+        ...process(candidatesRes.data || [], "paper"),
+      ]);
+    } catch (e) {
+      console.error("Data fetch error:", e);
+    }
+  }, []);
+
+  // PDF 및 요약본 로드 (핵심: viewingRef가 바뀔 때마다 실행)
+  // Dashboard.jsx 내부 loadFileData 함수 부분
+  const loadFileData = useCallback(
+    async (ref) => {
+      if (!ref || !currentSessionId) return;
+
+      // 1. PDF 로드 부분 (기존과 동일)
+      setIsPdfLoading(true);
+      try {
+        const downloadUrl =
+          ref.itemType === "file"
+            ? `/sessions/${currentSessionId}/files/${ref.id}/download`
+            : `/sessions/${currentSessionId}/papers/${ref.id}/download`;
+        const res = await api.get(downloadUrl, { responseType: "blob" });
+        if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+        setPdfUrl(
+          URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }))
+        );
+      } catch (e) {
+        console.error("PDF Load Error:", e);
+        setPdfUrl(null);
+      } finally {
+        setIsPdfLoading(false);
+      }
+
+      // 2. Summary 로드 부분 (명세서 대응 수정)
+      setIsSummaryLoading(true);
+      try {
+        const summaryUrl =
+          ref.itemType === "file"
+            ? `/sessions/${currentSessionId}/files/${ref.id}/summary`
+            : `/sessions/${currentSessionId}/papers/${ref.id}/summary`;
+        const sRes = await api.get(summaryUrl);
+
+        // 백엔드 extract.py 로직 상 'content' 필드로 올 가능성이 높으므로 둘 다 체크
+        const summaryText = sRes.data.content || sRes.data.summary || "";
+        setSummaryContent(summaryText);
+      } catch (e) {
+        console.error("Summary Load Error:", e);
+        setSummaryContent("");
+      } finally {
+        setIsSummaryLoading(false);
+      }
+    },
+    [currentSessionId, pdfUrl]
+  );
+  // Ensure API Authorization header is set once on mount
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (token) api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
     else delete api.defaults.headers.common["Authorization"];
   }, []);
 
-  // --- Data Fetching Logic ---
-  const fetchSessionData = useCallback(async (sessionId) => {
-    if (!sessionId) return;
-    try {
-      const [msgRes, filesRes, candidatesRes, selectionsRes] = await Promise.all([
-        api.get(`/sessions/${sessionId}/messages`),
-        api.get(`/sessions/${sessionId}/files`),
-        api.get(`/sessions/${sessionId}/research/candidates`),
-        api.get(`/sessions/${sessionId}/selections`),
-      ]);
-
-      setMessages(Array.isArray(msgRes.data) ? msgRes.data : []);
-      
-      const selectionsData = Array.isArray(selectionsRes.data) ? selectionsRes.data : [];
-      const filesData = Array.isArray(filesRes.data) ? filesRes.data : [];
-      const candidatesData = Array.isArray(candidatesRes.data) ? candidatesRes.data : [];
-      const selectedIds = new Set(selectionsData.map(s => s.item_id));
-      
-      const processItems = (items, type) => items.map(item => ({
-        id: item.id,
-        title: type === "file" ? item.original_name : item.title,
-        type: type === "file" ? "FILE" : "PAPER",
-        status: type === "file" ? item.status : "staged",
-        isLocal: false,
-        itemType: type,
-        url: item.url,
-        abstract: item.abstract || (type === "file" ? "파일 본문 내용은 아직 제공되지 않습니다." : "초록 정보 없음"),
-        hasPdf: item.has_pdf,
-        serverChecked: selectedIds.has(item.id) 
-      }));
-
-      const newFiles = processItems(filesData, "file");
-      const newPapers = processItems(candidatesData, "paper");
-      let mergedList = [...newFiles, ...newPapers];
-      mergedList = mergedList.filter(item => !pendingActionsRef.current.deleting.has(item.id));
-
-      setReferences(prev => {
-        const prevMap = new Map(prev.map(r => [r.id, r]));
-        return mergedList.map(newItem => {
-          const isToggling = pendingActionsRef.current.toggling.has(newItem.id);
-          const currentChecked = isToggling ? prevMap.get(newItem.id)?.checked : newItem.serverChecked;
-          return { ...newItem, checked: currentChecked !== undefined ? currentChecked : newItem.serverChecked };
-        });
-      });
-    } catch (e) { console.error(e); }
-  }, []);
-
   useEffect(() => {
-    const init = async () => {
+    api.get("/sessions").then((res) => setSessions(res.data || []));
+  }, []);
+  useEffect(() => {
+    if (viewingRef) loadFileData(viewingRef);
+  }, [viewingRef]);
+
+  // ----------------------------------------------------------------------------------
+  // Retrieval Agent (streaming): proposal -> confirm/cancel -> indexing
+  // ----------------------------------------------------------------------------------
+  const processStreamResponse = useCallback(
+    async (response) => {
+      if (!response?.ok) {
+        const text = await response.text().catch(() => "");
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "ai",
+            content: text || `요청 실패 (HTTP ${response?.status ?? "?"})`,
+          },
+        ]);
+        return;
+      }
+
+      const reader = response.body?.getReader?.();
+      if (!reader) {
+        setMessages((prev) => [
+          ...prev,
+          { role: "ai", content: "스트리밍 응답을 읽을 수 없습니다." },
+        ]);
+        return;
+      }
+
+      const decoder = new TextDecoder("utf-8");
+      let buffer = "";
+
       try {
-        const res = await api.get("/sessions");
-        setSessions(Array.isArray(res.data) ? res.data : []);
-      } catch (e) { setSessions([]); }
-    };
-    init();
-  }, []);
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
 
-  const hasActiveTasks = useMemo(() => {
-    return references.some(r => r.status === 'uploading' || r.status === 'processing');
-  }, [references]);
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
 
-  useEffect(() => {
-    if (!currentSessionId || isWaiting) return;
-    const intervalTime = hasActiveTasks ? 3000 : 20000;
-    const intervalId = setInterval(() => { fetchSessionData(currentSessionId); }, intervalTime);
-    return () => clearInterval(intervalId);
-  }, [currentSessionId, fetchSessionData, hasActiveTasks, isWaiting]);
+          for (const raw of lines) {
+            const line = raw.trim();
+            if (!line) continue;
 
-  // --- Handlers ---
-  const handleSelectSession = useCallback((id) => {
-    setCurrentSessionId(id);
-    fetchSessionData(id);
-    setViewingRef(null);
-  }, [fetchSessionData]);
+            try {
+              const data = JSON.parse(line);
+              const t = data.type;
 
-  const handleCreateSession = async () => {
-    if (!newSessionTitle.trim()) return;
-    try {
-      const res = await api.post("/sessions", { title: newSessionTitle });
-      const newSession = res.data;
-      setSessions(prev => [newSession, ...prev]);
-      handleSelectSession(newSession.id);
-      setShowSessionModal(false);
-      setNewSessionTitle("");
-    } catch (e) { alert("세션 생성 실패"); }
-  };
-
-  const uploadFiles = useCallback(async (files) => {
-    if (!currentSessionId || !files.length) return;
-    const newRefs = Array.from(files).map((file, i) => ({
-      id: `temp-${Date.now()}-${i}`, title: file.name, type: "FILE", status: "uploading",
-      checked: true, isLocal: true, isLoading: true, itemType: "file"
-    }));
-    setReferences(prev => [...prev, ...newRefs]);
-
-    const fd = new FormData();
-    Array.from(files).forEach(f => fd.append("files", f));
-    try {
-      const res = await api.post(`/sessions/${currentSessionId}/files`, fd, { headers: { "Content-Type": "multipart/form-data" } });
-      const uploadedData = res.data || [];
-      for (const item of uploadedData) {
-        await api.post(`/sessions/${currentSessionId}/selections/toggle`, { item_type: "uploaded_file", item_id: item.file_id });
-      }
-      fetchSessionData(currentSessionId);
-    } catch (e) { 
-      alert("업로드 실패"); 
-      setReferences(prev => prev.filter(r => !r.id.toString().startsWith("temp")));
-    }
-  }, [currentSessionId, fetchSessionData]);
-
-  const toggleReference = useCallback(async (ref) => {
-    if (!currentSessionId) return;
-    setReferences(prev => prev.map(r => r.id === ref.id ? { ...r, checked: !r.checked } : r));
-    pendingActionsRef.current.toggling.add(ref.id);
-    try {
-      const type = ref.itemType === "file" ? "uploaded_file" : "staged_paper";
-      await api.post(`/sessions/${currentSessionId}/selections/toggle`, { item_type: type, item_id: ref.id });
-    } catch (e) { 
-      setReferences(prev => prev.map(r => r.id === ref.id ? { ...r, checked: !r.checked } : r));
-    } finally {
-      setTimeout(() => { pendingActionsRef.current.toggling.delete(ref.id); }, 1000); 
-    }
-  }, [currentSessionId]);
-
-  const removeReference = useCallback(async (ref) => {
-    if (!window.confirm("항목을 삭제하시겠습니까?")) return;
-    setReferences(prev => prev.filter(r => r.id !== ref.id));
-    if (viewingRef?.id === ref.id) setViewingRef(null);
-    pendingActionsRef.current.deleting.add(ref.id);
-    try {
-      if(ref.itemType === "file") await api.delete(`/sessions/${currentSessionId}/files/${ref.id}`);
-    } catch (e) { 
-      alert("삭제 실패");
-      pendingActionsRef.current.deleting.delete(ref.id);
-      fetchSessionData(currentSessionId);
-    }
-  }, [currentSessionId, viewingRef, fetchSessionData]);
-
-  // --- PDF & Summary Logic ---
-  const loadPdfPreview = useCallback(async (ref) => {
-    if (!ref || !currentSessionId) return;
-    setIsPdfLoading(true);
-    if (pdfUrl) URL.revokeObjectURL(pdfUrl);
-    setPdfUrl(null);
-    try {
-      let res;
-      if (ref.itemType === "paper" && ref.hasPdf) {
-        res = await api.get(`/sessions/${currentSessionId}/papers/${ref.id}/download`, { responseType: "blob" });
-      } else if (ref.itemType === "file") {
-        res = await api.get(`/sessions/${currentSessionId}/files/${ref.id}/download`, { responseType: "blob" });
-      } else {
-        throw new Error("PDF source not available");
-      }
-      const blob = new Blob([res.data], { type: "application/pdf" });
-      const url = window.URL.createObjectURL(blob);
-      setPdfUrl(url);
-    } catch (e) { setPdfUrl(null); } finally { setIsPdfLoading(false); }
-  }, [currentSessionId]); 
-
-  const fetchSummary = useCallback(async (ref) => {
-    if (!ref || !currentSessionId) return;
-    setIsSummaryLoading(true);
-    setSummaryContent(""); 
-    try {
-      let endpoint = "";
-      if (ref.itemType === "file" || ref.itemType === "uploaded_file") {
-         endpoint = `/sessions/${currentSessionId}/files/${ref.id}/summary`;
-      } else if (ref.itemType === "paper" || ref.itemType === "staged_paper") {
-         endpoint = `/sessions/${currentSessionId}/papers/${ref.id}/summary`;
-      }
-      if (endpoint) {
-        const res = await api.get(endpoint);
-        if (res.data.status === "empty" && ref.abstract) {
-           setSummaryContent(`### [Abstract]\n\n${ref.abstract}\n\n*(자동 요약본이 없어 초록을 표시합니다)*`);
-        } else {
-           setSummaryContent(res.data.content);
+              if (t === "log") {
+                setMessages((prev) => {
+                  const last = prev[prev.length - 1];
+                  if (last && last.isLog) {
+                    return [
+                      ...prev.slice(0, -1),
+                      { role: "ai", content: data.content, isLog: true },
+                    ];
+                  }
+                  return [
+                    ...prev,
+                    { role: "ai", content: data.content, isLog: true },
+                  ];
+                });
+              } else if (t === "proposal") {
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    role: "ai",
+                    content: data.content,
+                    isProposal: true,
+                    agentType: "retrieval",
+                    analysisData: data.analysis,
+                  },
+                ]);
+              } else if (t === "result" || t === "message" || t === "error") {
+                setMessages((prev) => [
+                  ...prev,
+                  { role: "ai", content: data.content },
+                ]);
+                if (t === "result") {
+                  // 결과가 DB에 반영될 시간을 조금 준 뒤 목록 갱신
+                  setTimeout(() => {
+                    if (currentSessionId) fetchSessionData(currentSessionId);
+                  }, 800);
+                }
+              } else {
+                // unknown event
+                if (data?.content) {
+                  setMessages((prev) => [
+                    ...prev,
+                    { role: "ai", content: data.content },
+                  ]);
+                }
+              }
+            } catch (e) {
+              console.error("Stream Parse Error", e);
+            }
+          }
         }
-      } else {
-        setSummaryContent("지원하지 않는 문서 타입입니다.");
+      } catch (err) {
+        console.error("Stream Read Error", err);
+        setMessages((prev) => [
+          ...prev,
+          { role: "ai", content: "스트리밍 중 오류가 발생했습니다." },
+        ]);
       }
-    } catch (e) { setSummaryContent("요약 정보를 불러오는 데 실패했습니다."); } finally { setIsSummaryLoading(false); }
-  },[currentSessionId]);
+    },
+    [currentSessionId, fetchSessionData]
+  );
 
-  useEffect(() => {
-    if (!viewingRef) return;
-    if (centerTab === "original") loadPdfPreview(viewingRef);
-    if (centerTab === "summary") fetchSummary(viewingRef);
-  }, [centerTab, viewingRef, loadPdfPreview, fetchSummary]);
+  const handleRetrieval = useCallback(async () => {
+    if (!currentSessionId) return;
+    const q = (retrievalQuery || "").trim();
+    if (!q) return;
 
-  useEffect(() => { return () => { if (pdfUrl) URL.revokeObjectURL(pdfUrl); }; }, [pdfUrl]);
+    setShowRetrievalModal(false);
+    setRetrievalQuery("");
+    setLeftTab("library");
 
-  const handleDownload = async (ref) => {
-    if (ref.itemType === "paper" && ref.hasPdf) {
-      try {
-        const res = await api.get(`/sessions/${currentSessionId}/papers/${ref.id}/download`, { responseType: "blob" });
-        const url = window.URL.createObjectURL(new Blob([res.data]));
-        const link = document.createElement("a"); link.href = url; link.setAttribute("download", `${ref.title.substring(0, 50)}.pdf`);
-        document.body.appendChild(link); link.click(); link.remove();
-      } catch (e) {
-        alert("다운로드 중 오류가 발생했습니다. 원문 링크를 엽니다.");
-        if (ref.url) window.open(ref.url, "_blank");
-      }
-    } else if (ref.itemType === "paper") {
-      if (ref.url) window.open(ref.url, "_blank");
-      else alert("링크 정보가 없습니다.");
-    } else {
-      try {
-        const res = await api.get(`/sessions/${currentSessionId}/files/${ref.id}/download`, { responseType: "blob" });
-        const url = window.URL.createObjectURL(new Blob([res.data]));
-        const link = document.createElement("a"); link.href = url; link.setAttribute("download", ref.title);
-        document.body.appendChild(link); link.click(); link.remove();
-      } catch (e) { alert("다운로드 오류"); }
-    }
-  };
-
-  // ----------------------------------------------------------------------------------
-  // 🔥 [Core Feature] Chat & Research Logic
-  // ----------------------------------------------------------------------------------
-
-  // 1. 일반 채팅 (RAG)
-  const handleSendMessage = useCallback(async (msgText) => {
-    if (!msgText || !msgText.trim() || isWaiting || !currentSessionId) return;
-
-    setMessages(prev => [...prev, { role: "user", content: msgText }]);
+    setMessages((prev) => [...prev, { role: "user", content: q }]);
     setIsWaiting(true);
 
     try {
-      const selectedRefs = references.filter(r => r.checked);
-      const contextItems = selectedRefs.map(r => ({
+      const token = localStorage.getItem("token");
+      const baseUrl = api.defaults?.baseURL || "";
+      const res = await fetch(
+        `${baseUrl}/sessions/${currentSessionId}/research`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ query: q, is_confirmed: false }),
+        }
+      );
+      await processStreamResponse(res);
+    } catch (e) {
+      setMessages((prev) => [
+        ...prev,
+        { role: "ai", content: `검색 요청 실패: ${e?.message || e}` },
+      ]);
+    } finally {
+      setIsWaiting(false);
+    }
+  }, [currentSessionId, retrievalQuery, processStreamResponse]);
+
+  const handleConfirmAction = useCallback(
+    async (agentType, analysisData) => {
+      if (agentType !== "retrieval" || !currentSessionId) return;
+
+      // (UI) 마지막 proposal 메시지에서 버튼 제거
+      setMessages((prev) => {
+        const msgs = [...prev];
+        const last = msgs[msgs.length - 1];
+        if (last && last.isProposal)
+          msgs[msgs.length - 1] = { ...last, isProposal: false };
+        return [...msgs, { role: "user", content: "진행해 주세요." }];
+      });
+
+      setIsWaiting(true);
+      try {
+        const token = localStorage.getItem("token");
+        const baseUrl = api.defaults?.baseURL || "";
+        const res = await fetch(
+          `${baseUrl}/sessions/${currentSessionId}/research`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({
+              query: "confirmed",
+              is_confirmed: true,
+              confirmed_intent: analysisData,
+            }),
+          }
+        );
+        await processStreamResponse(res);
+      } catch (e) {
+        setMessages((prev) => [
+          ...prev,
+          { role: "ai", content: `실행 오류: ${e?.message || e}` },
+        ]);
+      } finally {
+        setIsWaiting(false);
+      }
+    },
+    [currentSessionId, processStreamResponse]
+  );
+
+  const handleCancelAction = useCallback(() => {
+    setMessages((prev) => {
+      const msgs = [...prev];
+      const last = msgs[msgs.length - 1];
+      if (last && last.isProposal) {
+        msgs[msgs.length - 1] = {
+          ...last,
+          isProposal: false,
+          content: `${last.content}\n\n*(취소됨)*`,
+        };
+      }
+      return msgs;
+    });
+    setIsWaiting(false);
+  }, []);
+  const handleSendMessage = async (text) => {
+    if (!text.trim() || isWaiting || !currentSessionId) return;
+    setMessages((prev) => [...prev, { role: "user", content: text }]);
+    setIsWaiting(true);
+    try {
+      const selectedRefs = references.filter((r) => r.checked);
+      const contextItems = selectedRefs.map((r) => ({
         id: r.id,
         type: r.itemType === "file" ? "uploaded_file" : "staged_paper",
         status: r.status || "uploaded",
-        title: r.title
+        title: r.title,
       }));
 
-      const body = { message: msgText, context_items: contextItems };
-      // 일반 채팅은 /chat 엔드포인트 사용
-      const res = await api.post(`/sessions/${currentSessionId}/chat`, body);
-      setMessages(prev => [...prev, { role: "ai", content: res.data.reply }]);
+      const res = await api.post(`/sessions/${currentSessionId}/chat`, {
+        message: text,
+        context_items: contextItems,
+      });
+      setMessages((prev) => [
+        ...prev,
+        { role: "ai", content: res.data.reply, evidence: res.data.evidence },
+      ]);
     } catch (e) {
-      setMessages(prev => [...prev, { role: "ai", content: "오류 발생: " + e.message }]);
+      console.log("[CHAT] failed:", e);
+      setMessages((prev) => [
+        ...prev,
+        { role: "ai", content: "채팅 요청 실패. 콘솔 로그를 확인해 주세요." },
+      ]);
     } finally {
       setIsWaiting(false);
       fetchSessionData(currentSessionId);
     }
-  }, [isWaiting, currentSessionId, references]);
-
-  // 2. 스트림 응답 처리 (Research용)
-  const processStreamResponse = async (response) => {
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    try {
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            
-            const lines = buffer.split("\n");
-            buffer = lines.pop(); // Incomplete line handling
-
-            for (const line of lines) {
-                if (!line.trim()) continue;
-                try {
-                    const data = JSON.parse(line);
-                    
-                    if (data.type === "log") {
-                        // 로그는 마지막 메시지가 로그라면 업데이트, 아니면 추가
-                        setMessages(prev => {
-                            const last = prev[prev.length - 1];
-                            if (last && last.isLog) {
-                                return [...prev.slice(0, -1), { role: "ai", content: data.content, isLog: true }];
-                            }
-                            return [...prev, { role: "ai", content: data.content, isLog: true }];
-                        });
-                    } else if (data.type === "proposal") {
-                        setMessages(prev => [...prev, {
-                            role: "ai", 
-                            content: data.content, 
-                            isProposal: true, 
-                            agentType: "retrieval", // Research Agent
-                            analysisData: data.analysis
-                        }]);
-                    } else if (data.type === "result" || data.type === "message" || data.type === "error") {
-                        setMessages(prev => [...prev, { role: "ai", content: data.content }]);
-                        if (data.type === "result") {
-                            // 결과가 나오면 목록 갱신을 위해 데이터 다시 불러오기
-                            setTimeout(() => fetchSessionData(currentSessionId), 1000);
-                        }
-                    }
-                } catch (e) { console.error("Stream Parse Error", e); }
-            }
-        }
-    } catch (err) {
-        console.error("Stream Read Error", err);
-        setMessages(prev => [...prev, { role: "ai", content: "스트리밍 중 오류가 발생했습니다." }]);
-    }
   };
+  const uploadFiles = useCallback(
+    async (files) => {
+      if (!currentSessionId) {
+        alert("세션을 먼저 선택하세요.");
+        return;
+      }
+      if (!files || files.length === 0) return;
 
-  // 3. 논문 검색 (Research) - 🔥 수정됨
-  const handleRetrieval = async () => {
-    if (!retrievalQuery.trim()) return;
-    const query = retrievalQuery;
-    
-    setShowRetrievalModal(false);
-    setRetrievalQuery("");
-    setLeftTab("library"); // 결과 확인을 위해 탭 이동
+      // optimistic UI
+      const tempRefs = Array.from(files).map((file, i) => ({
+        id: `temp-${Date.now()}-${i}`,
+        title: file.name,
+        type: "FILE",
+        status: "uploading",
+        checked: true,
+        isLocal: true,
+        itemType: "file",
+      }));
+      setReferences((prev) => [...tempRefs, ...prev]);
 
-    // UI에 유저 메시지 표시
-    setMessages(prev => [...prev, { role: "user", content: query }]);
-    setIsWaiting(true);
+      const fd = new FormData();
+      Array.from(files).forEach((f) => fd.append("files", f));
 
-    try {
-        // 🔥 중요: fetch API를 사용하여 Stream 처리 (Axios 대신)
-        const token = localStorage.getItem("token");
-        const response = await fetch(`${api.defaults.baseURL}/sessions/${currentSessionId}/research`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${token}`
-            },
-            body: JSON.stringify({ query: query, is_confirmed: false }) // 제안 모드
+      try {
+        const res = await api.post(`/sessions/${currentSessionId}/files`, fd, {
+          headers: { "Content-Type": "multipart/form-data" },
         });
 
-        await processStreamResponse(response);
-    } catch (e) {
-        setMessages(prev => [...prev, { role: "ai", content: "검색 요청 실패: " + e.message }]);
-    } finally {
-        setIsWaiting(false);
-    }
-  };
-
-  // 4. 검색 확정 (Proposal Confirm) - 🔥 수정됨
-  const handleConfirmAction = useCallback(async (agentType, analysisData) => {
-    if (agentType !== "retrieval") return; // 현재는 retrieval만 처리
-
-    // UI 업데이트 (버튼 제거)
-    setMessages(prev => {
-        const msgs = [...prev];
-        const last = msgs[msgs.length - 1];
-        if (last && last.isProposal) msgs[msgs.length - 1] = { ...last, isProposal: false };
-        return [...msgs, { role: "user", content: "진행해 주세요." }];
-    });
-    setIsWaiting(true);
-
-    try {
-        const token = localStorage.getItem("token");
-        const response = await fetch(`${api.defaults.baseURL}/sessions/${currentSessionId}/research`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${token}`
-            },
-            // 확정 모드 (confirmed_intent 전달)
-            body: JSON.stringify({ 
-                query: "confirmed", 
-                is_confirmed: true,
-                confirmed_intent: analysisData 
-            }) 
-        });
-
-        await processStreamResponse(response);
-    } catch (e) {
-        setMessages(prev => [...prev, { role: "ai", content: "실행 오류: " + e.message }]);
-    } finally {
-        setIsWaiting(false);
-    }
-  }, [currentSessionId]);
-
-  const handleCancelAction = useCallback(() => {
-      setMessages(prev => {
-        const msgs = [...prev];
-        const last = msgs[msgs.length - 1];
-        if (last && last.isProposal) {
-            msgs[msgs.length - 1] = { ...last, isProposal: false, content: last.content + "\n\n*(취소됨)*" };
+        // 서버가 업로드 즉시 선택/분석을 트리거하지 않는 경우를 대비해 자동 선택
+        const uploaded = Array.isArray(res.data) ? res.data : [];
+        for (const item of uploaded) {
+          const fileId = item.file_id ?? item.id ?? item.uploaded_file_id;
+          if (!fileId) continue;
+          await api.post(`/sessions/${currentSessionId}/selections/toggle`, {
+            item_type: "uploaded_file",
+            item_id: fileId,
+          });
         }
-        return msgs;
-    });
-    setIsWaiting(false);
-  }, []);
+
+        await fetchSessionData(currentSessionId);
+      } catch (e) {
+        console.log("[UPLOAD] failed:", e);
+        alert("업로드 실패. 콘솔 로그를 확인해 주세요.");
+        setReferences((prev) =>
+          prev.filter((r) => !String(r.id).startsWith("temp-"))
+        );
+      }
+    },
+    [currentSessionId, fetchSessionData]
+  );
+
+  const toggleReference = useCallback(
+    async (ref) => {
+      if (!currentSessionId) return;
+      setReferences((prev) =>
+        prev.map((r) => (r.id === ref.id ? { ...r, checked: !r.checked } : r))
+      );
+      try {
+        await api.post(`/sessions/${currentSessionId}/selections/toggle`, {
+          item_type: ref.itemType === "file" ? "uploaded_file" : "staged_paper",
+          item_id: ref.id,
+        });
+      } catch (e) {
+        console.log("[TOGGLE] failed:", e);
+        // revert
+        setReferences((prev) =>
+          prev.map((r) => (r.id === ref.id ? { ...r, checked: !r.checked } : r))
+        );
+      }
+    },
+    [currentSessionId]
+  );
+
+  const removeReference = useCallback(
+    async (ref) => {
+      if (!currentSessionId) return;
+      if (!window.confirm("파일을 삭제하시겠습니까?")) return;
+      try {
+        if (ref.itemType === "file") {
+          await api.delete(`/sessions/${currentSessionId}/files/${ref.id}`);
+        }
+        await fetchSessionData(currentSessionId);
+      } catch (e) {
+        console.log("[DELETE] failed:", e);
+        alert("삭제 실패.");
+      }
+    },
+    [currentSessionId, fetchSessionData]
+  );
 
   return (
     <div className="dashboard-layout">
-      <LeftPanel 
-        sessions={sessions} currentSessionId={currentSessionId}
-        leftTab={leftTab} setLeftTab={setLeftTab}
-        references={references} viewingRef={viewingRef}
-        onSelectSession={handleSelectSession}
-        onCreateSessionTrigger={() => setShowSessionModal(true)}
+      <LeftPanel
+        sessions={sessions}
+        currentSessionId={currentSessionId}
+        leftTab={leftTab}
+        setLeftTab={setLeftTab}
+        references={references}
+        viewingRef={viewingRef}
+        onSelectSession={(id) => {
+          setCurrentSessionId(id);
+          fetchSessionData(id);
+        }}
+        onSelectRef={setViewingRef}
+        onRetrievalTrigger={() => setShowRetrievalModal(true)}
+        onUploadTrigger={uploadFiles}
+        onLogout={onLogout}
         onToggleRef={toggleReference}
         onRemoveRef={removeReference}
-        onSelectRef={setViewingRef}
-        onUploadTrigger={uploadFiles}
-        onRetrievalTrigger={() => setShowRetrievalModal(true)}
-        onLogout={onLogout}
+        onCreateSessionTrigger={async () => {
+          const title = prompt("New Session Name:");
+          if (title) {
+            const res = await api.post("/sessions", { title });
+            setSessions((prev) => [res.data, ...prev]);
+            setCurrentSessionId(res.data.id);
+          }
+        }}
       />
-      <CenterPanel 
-        viewingRef={viewingRef} centerTab={centerTab} setCenterTab={setCenterTab}
-        pdfUrl={pdfUrl} isPdfLoading={isPdfLoading}
-        summaryContent={summaryContent} isSummaryLoading={isSummaryLoading}
-        onDownload={handleDownload}
+      <CenterPanel
+        viewingRef={viewingRef}
+        centerTab={centerTab}
+        setCenterTab={setCenterTab}
+        pdfUrl={pdfUrl}
+        isPdfLoading={isPdfLoading}
+        summaryContent={summaryContent}
+        isSummaryLoading={isSummaryLoading}
+        highlightText={highlightText}
       />
-      <RightPanel 
-        messages={messages} isWaiting={isWaiting}
+      <RightPanel
+        messages={messages}
+        isWaiting={isWaiting}
         onSendMessage={handleSendMessage}
+        onExecuteHighlight={(txt) => {
+          setCenterTab("analysis");
+          setHighlightText(txt);
+        }}
         onConfirmAction={handleConfirmAction}
         onCancelAction={handleCancelAction}
       />
 
-      {/* Modals */}
-      {showSessionModal && (
-        <div className="modal-overlay">
-          <div className="modal-box">
-            <div className="modal-head">
-              <h3>New Session</h3>
-              <button className="close-btn" onClick={() => setShowSessionModal(false)}><X size={20}/></button>
-            </div>
-            <div className="modal-content">
-              <input className="modal-input" placeholder="Enter research topic..." value={newSessionTitle} onChange={e => setNewSessionTitle(e.target.value)} autoFocus />
-            </div>
-            <div className="modal-foot">
-              <button className="modal-btn-confirm" onClick={handleCreateSession}>Create</button>
-              <button className="modal-btn-cancel" onClick={() => setShowSessionModal(false)}>Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {showRetrievalModal && (
-        <div className="modal-overlay">
-          <div className="modal-box">
-            <div className="modal-head">
-              <div style={{display:'flex', alignItems:'center', gap:'8px'}}>
-                <Zap size={18} color="var(--primary)"/>
-                <h3>Retrieval Agent</h3>
-              </div>
-              <button className="close-btn" onClick={() => setShowRetrievalModal(false)}><X size={20}/></button>
+        <div
+          className="modal-overlay"
+          onMouseDown={(e) => {
+            // overlay 클릭 시 닫기 (box 클릭은 무시)
+            if (e.target === e.currentTarget) setShowRetrievalModal(false);
+          }}
+        >
+          <div className="modal-box" role="dialog" aria-modal="true">
+            <div className="modal-header">
+              <h3>Retrieval Agent</h3>
+              <button
+                className="icon-btn"
+                onClick={() => setShowRetrievalModal(false)}
+                aria-label="close"
+              >
+                <X size={16} />
+              </button>
             </div>
-            <div className="modal-content">
-              <p className="modal-desc">Search for papers on PubMed/bioRxiv.</p>
-              <textarea className="modal-input" style={{height:'100px', resize:'none'}} placeholder="e.g. Recent studies on EGFR..." value={retrievalQuery} onChange={e => setRetrievalQuery(e.target.value)} />
-            </div>
-            <div className="modal-foot">
-              <button className="modal-btn-confirm" onClick={handleRetrieval}>Start Search</button>
-              <button className="modal-btn-cancel" onClick={() => setShowRetrievalModal(false)}>Cancel</button>
+            <p className="modal-desc">
+              찾고 싶은 연구 주제/질문을 입력하면, 후보 논문을 검색해
+              라이브러리에 추가합니다.
+            </p>
+            <textarea
+              className="modal-textarea"
+              placeholder="예: 운동이 알츠하이머 진행에 미치는 영향 (2020~)"
+              value={retrievalQuery}
+              onChange={(e) => setRetrievalQuery(e.target.value)}
+              rows={4}
+            />
+            <div className="modal-actions">
+              <button
+                className="btn-secondary"
+                onClick={() => setShowRetrievalModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn-primary"
+                onClick={handleRetrieval}
+                disabled={
+                  !retrievalQuery.trim() || !currentSessionId || isWaiting
+                }
+              >
+                <Play size={14} /> Run
+              </button>
             </div>
           </div>
         </div>
