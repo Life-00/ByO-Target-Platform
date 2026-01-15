@@ -67,7 +67,7 @@ class KnowledgeChunk(BaseModel):
 
     # ---- provenance ----
     query_id: Optional[str] = None
-    pmid: str
+    pmid: Optional[str] = None
 
     # ---- core entities ----
     target: Optional[str] = None

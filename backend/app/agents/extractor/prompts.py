@@ -75,34 +75,41 @@ def evidence_extraction_prompt(
     """
     return f"""
     You are a scientific evidence extractor.
-    
+
     Given the following CLAIM:
     \"\"\"{claim}\"\"\"
-    
-    From the provided sentences, identify ONLY sentences that are directly relevant.
-    
-    Sentence roles:
-    - support: empirical or experimental results that support the claim
-    - limitation: statements that qualify, restrict, or limit the claim
-    
+
+
+    Below are sentences extracted from a research paper.
+    Each sentence may come from any section (methods, results, discussion, conclusion, etc.).
+
+    Your task:
+    - Identify ONLY sentences that are directly relevant to the claim.
+    - Classify each selected sentence by its ROLE.
+
+    Roles:
+    - support: empirical, experimental, or analytical statements supporting the claim
+    - limitation: statements that qualify, restrict, or weaken the claim
+
     Sentences:
     \"\"\"{sentences}\"\"\"
-    
+
+
     Return STRICT JSON only in the following format:
-    
+
     {{
       "evidence_spans": [
         {{
           "sentence_id": string,
-          "role": "support" | "limitation" # 주장 지지 ? or 조건/한계 존재?
+          "role": "support" | "limitation"
         }}
       ]
     }}
-    
+
     Guidelines:
+    - Do NOT rely on section names to determine relevance.
+    - Judge based on semantic relation to the claim.
     - Do NOT introduce new claims.
-    - Do NOT paraphrase sentences.
-    - Select sentences based on role, not section importance.
     - If no relevant sentences exist, return an empty list.
     """.strip()
 

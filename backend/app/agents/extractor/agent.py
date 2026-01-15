@@ -108,34 +108,34 @@ class ExtractorAgent:
             claim: ExtractedClaim,
     ) -> List[dict]:
         """
-        Evidence-Extractor
-        - Default: Results only
-        - Role-based (support / limitation)
+        Section-agnostic Evidence Extractor
         """
 
         sentences = []
 
-        # Results
-        for s in (paper.result_sentences or []):
-            if s.text:
-                sentences.append(
-                    {
-                        "sentence_id": s.sentence_id,
-                        "section": "results",
-                        "text": s.text,
-                    }
-                )
+        # 1️⃣ fulltext가 있으면 최우선
+        if paper.fulltext_sentences:
+            for s in paper.fulltext_sentences:
+                if s.text:
+                    sentences.append(
+                        {
+                            "sentence_id": s.sentence_id,
+                            "section": s.section or "unknown",
+                            "text": s.text,
+                        }
+                    )
 
-        # (Optional) Discussion – limitation only
-        for s in (paper.discussion_sentences or []):
-            if s.text:
-                sentences.append(
-                    {
-                        "sentence_id": s.sentence_id,
-                        "section": "discussion",
-                        "text": s.text,
-                    }
-                )
+        # 2️⃣ fallback: abstract라도 사용
+        elif paper.abstract_sentences:
+            for s in paper.abstract_sentences:
+                if s.text:
+                    sentences.append(
+                        {
+                            "sentence_id": s.sentence_id,
+                            "section": "abstract",
+                            "text": s.text,
+                        }
+                    )
 
         if not sentences:
             return []
