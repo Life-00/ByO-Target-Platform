@@ -12,7 +12,7 @@ from app.schemas.retrieval import PaperCorpus, Paper
 from app.schemas.knowledge import KnowledgeChunk
 from app.core.llm import call_llm
 
-from app.services.chromadb.ingest_chunk import add_chunks_to_chromadb
+# from app.services.chromadb.ingest_chunk import add_chunks_to_chromadb
 
 print(">>> USING UPDATED ExtractorAgent (LLM-only, no enums) <<<")
 
@@ -50,22 +50,22 @@ class ExtractorAgent:
         return chunks
 
     # ChromaDB에 생성한 KnowledgeChunk 저장
-    def run_and_store(self, corpus: PaperCorpus) -> List[KnowledgeChunk]:
-        """
-        Execute extraction and persist resulting KnowledgeChunks into ChromaDB.
-
-        - Includes side effects (vector DB write)
-        - Intended for ingestion pipeline
-        """
-        chunks = self.run(corpus)
-
-        if chunks:
-            try:
-                add_chunks_to_chromadb(chunks)
-            except Exception as e:
-                print("[ExtractorAgent] Failed to store chunks:", e)
-
-        return chunks
+    # def run_and_store(self, corpus: PaperCorpus) -> List[KnowledgeChunk]:
+    #     """
+    #     Execute extraction and persist resulting KnowledgeChunks into ChromaDB.
+    #
+    #     - Includes side effects (vector DB write)
+    #     - Intended for ingestion pipeline
+    #     """
+    #     chunks = self.run(corpus)
+    #
+    #     if chunks:
+    #         try:
+    #             add_chunks_to_chromadb(chunks)
+    #         except Exception as e:
+    #             print("[ExtractorAgent] Failed to store chunks:", e)
+    #
+    #     return chunks
 
 
     # ---------- Step 1: Claim extraction ----------
