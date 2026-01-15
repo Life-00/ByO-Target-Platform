@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Tuple, Optional, Any
 
-from app.agents.retriever.types import ExpandedQuery
+from app.agents.retriever.retriever_types import ExpandedQuery
 from app.service.pubmed import client as pubmed_client
 from app.service.pubmed.parser import parse_medline
 from app.schemas.retrieval import Paper
