@@ -4,24 +4,28 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 from typing import List, Optional, Literal
 
-# ??旮办〈: RetrievalReason = Literal["keyword", "synonym", "update", "citation_chain", "manual"]
-# ???橃爼: 攴鸽儱 氍胳瀽??str)搿?氤€瓴巾晿???犾棸?橁矊 觳橂Μ
 RetrievalReason = str
 
-
+# abstract
 class AbstractSentence(BaseModel):
     sentence_id: str
     text: str
 
+# full-text
+class SectionSentence(BaseModel):
+    sentence_id: str
+    text: str
+    section: Optional[str] = None  # results, methods, discussion, etc.
 
 class Paper(BaseModel):
-    source: Literal["pubmed", "europe_pmc", "crossref", "arxiv"] = "pubmed"
+    source: Literal["pubmed", "europe_pmc", "crossref", "arxiv", "manual"] = "pubmed"
     source_id: str = ""
     pmid: Optional[str] = None
     doi: Optional[str] = None
     url: Optional[str] = None
     pdf_url: Optional[str] = None
     license: Optional[str] = None
+
     has_fulltext: bool = False
     title: str
     year: Optional[int] = None
@@ -29,8 +33,9 @@ class Paper(BaseModel):
     authors: List[str] = Field(default_factory=list)
 
     abstract_sentences: List[AbstractSentence] = Field(default_factory=list)
+    fulltext_sentences: List[SectionSentence] = Field(default_factory=list) # full-text
 
-    retrieval_reason: RetrievalReason  # ?挫牅 ?措枻 氍胳瀽?挫澊??OK
+    retrieval_reason: RetrievalReason
     query_id: str
 
     @property

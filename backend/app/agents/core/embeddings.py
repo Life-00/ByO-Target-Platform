@@ -1,6 +1,6 @@
 # app/core/embeddings.py
 
-import os
+from app.core.config import settings
 from langchain_upstage import UpstageEmbeddings
 
 
@@ -14,13 +14,12 @@ class UpstageChromaEmbedding:
     """
 
     def __init__(self):
-        api_key = os.getenv("UPSTAGE_API_KEY")
-        if not api_key:
+        if not settings.UPSTAGE_API_KEY:
             raise RuntimeError("UPSTAGE_API_KEY not set")
 
         self._emb = UpstageEmbeddings(
-            api_key=api_key,
-            model="solar-embedding-1-large"
+            api_key=settings.UPSTAGE_API_KEY,
+            model=settings.UPSTAGE_EMBED_MODEL
         )
 
     # For document embeddings
