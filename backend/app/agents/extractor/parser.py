@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 from pydantic import BaseModel
 
 
@@ -63,13 +63,36 @@ class SalienceModel(BaseModel):
     reason: Optional[str]
 
 
+# class ExtractedClaim(BaseModel):
+#     claim: str
+#
+#     effect: Optional[EffectModel]
+#     stance: Optional[StanceModel]
+#     salience: Optional[SalienceModel]
+#
+#     evidence_level: Optional[str]
+#     confidence: Optional[float]
+#     notes: Optional[str]
+
 class ExtractedClaim(BaseModel):
     claim: str
 
-    effect: Optional[EffectModel]
-    stance: Optional[StanceModel]
-    salience: Optional[SalienceModel]
+    # ⬇️ 모두 Optional로 전환
+    effect: Optional[EffectModel] = None
+    stance: Optional[StanceModel] = None
+    salience: Optional[SalienceModel] = None
 
-    evidence_level: Optional[str]
-    confidence: Optional[float]
-    notes: Optional[str]
+    evidence_level: Optional[str] = None
+    confidence: Optional[float] = None
+    notes: Optional[str] = None
+
+
+# ===== Evidence Models =====
+
+class EvidenceSpanModel(BaseModel):
+    sentence_id: str
+    role: str  # support | limitation
+
+
+class EvidenceExtractionResult(BaseModel):
+    evidence_spans: List[EvidenceSpanModel]
