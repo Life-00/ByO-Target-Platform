@@ -38,7 +38,14 @@ def parse_medline(
     sentences = split_sentences(abstract)
 
     return Paper(
+        source="pubmed",
+        source_id=pmid,
         pmid=pmid,
+        doi=None,
+        url=f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
+        pdf_url=None,
+        license=None,
+        has_fulltext=False,
         title=title,
         journal=journal or None,
         year=year,

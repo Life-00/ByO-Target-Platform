@@ -222,17 +222,19 @@ def research(
                 yield json.dumps({"type": "log", "content": f"📥 {len(candidate_pool)}개 후보 논문에 대해 PDF 다운로드 시도..."}, ensure_ascii=False) + "\n"
                 
                 pdf_map: Dict[str, Optional[str]] = {}
-                with ThreadPoolExecutor(max_workers=5) as executor:
-                    future_to_pmid = {executor.submit(pdf_fetcher.download_pdf, p.pmid): p.pmid for p in candidate_pool}
-                    for future in as_completed(future_to_pmid):
-                        pmid = future_to_pmid[future]
-                        try:
-                            pdf_map[pmid] = future.result()
-                        except Exception:
-                            pdf_map[pmid] = None
+                pdf_candidates = [p for p in candidate_pool if p.pmid]
+                if pdf_candidates:
+                    with ThreadPoolExecutor(max_workers=5) as executor:
+                        future_to_pmid = {executor.submit(pdf_fetcher.download_pdf, p.pmid): p.pmid for p in pdf_candidates}
+                        for future in as_completed(future_to_pmid):
+                            pmid = future_to_pmid[future]
+                            try:
+                                pdf_map[pmid] = future.result()
+                            except Exception:
+                                pdf_map[pmid] = None
 
-                downloaded_papers = [p for p in candidate_pool if pdf_map.get(p.pmid)]
-                no_pdf_papers = [p for p in candidate_pool if not pdf_map.get(p.pmid)]
+                downloaded_papers = [p for p in candidate_pool if p.pmid and pdf_map.get(p.pmid)]
+                no_pdf_papers = [p for p in candidate_pool if not p.pmid or not pdf_map.get(p.pmid)]
                 
                 final_selection = (downloaded_papers + no_pdf_papers)[:target_top_k]
                 
@@ -240,8 +242,9 @@ def research(
                 success_count = 0
 
                 for p in final_selection:
-                    pdf_path = pdf_map.get(p.pmid)
-                    if pdf_path: success_count += 1
+                    pdf_path = pdf_map.get(p.pmid) if p.pmid else None
+                    if pdf_path:
+                        success_count += 1
                     
                     abstract_text = " ".join([s.text for s in p.abstract_sentences]) if p.abstract_sentences else ""
                     
@@ -256,14 +259,17 @@ def research(
                             final_abstract = f"{abstract_text}{SUMMARY_MARKER}{summary_text}"
 
                     staged = StagedPaper(
-                        session_id=session_id, user_email=email, source="pubmed",
-                        title=p.title, authors=", ".join(p.authors) if p.authors else "",
+                        session_id=session_id,
+                        user_email=email,
+                        source=getattr(p, "source", "pubmed"),
+                        title=p.title,
+                        authors=", ".join(p.authors) if p.authors else "",
                         year=p.year, 
-                        url=getattr(p, "url", None) or f"https://pubmed.ncbi.nlm.nih.gov/{p.pmid}/",
+                        url=getattr(p, "url", None) or (f"https://pubmed.ncbi.nlm.nih.gov/{p.pmid}/" if p.pmid else None),
                         abstract=final_abstract, 
                         score=getattr(p, "score", 0.0),
                         pdf_storage_path=pdf_path
-                        # summary 인자 삭제 (오류 방지)
+                        # summary ????? ???? (????? ?????)
                     )
                     db.add(staged)
                     saved_models.append(staged)
