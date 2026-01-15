@@ -63,16 +63,29 @@ class SalienceModel(BaseModel):
     reason: Optional[str]
 
 
+# class ExtractedClaim(BaseModel):
+#     claim: str
+#
+#     effect: Optional[EffectModel]
+#     stance: Optional[StanceModel]
+#     salience: Optional[SalienceModel]
+#
+#     evidence_level: Optional[str]
+#     confidence: Optional[float]
+#     notes: Optional[str]
+
 class ExtractedClaim(BaseModel):
     claim: str
 
-    effect: Optional[EffectModel]
-    stance: Optional[StanceModel]
-    salience: Optional[SalienceModel]
+    # ⬇️ 모두 Optional로 전환
+    effect: Optional[EffectModel] = None
+    stance: Optional[StanceModel] = None
+    salience: Optional[SalienceModel] = None
 
-    evidence_level: Optional[str]
-    confidence: Optional[float]
-    notes: Optional[str]
+    evidence_level: Optional[str] = None
+    confidence: Optional[float] = None
+    notes: Optional[str] = None
+
 
 # ===== Evidence Models =====
 

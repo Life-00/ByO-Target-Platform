@@ -1,3 +1,4 @@
+# app/agents/extractor/prompts.py
 from __future__ import annotations
 from typing import List, Dict
 
@@ -112,4 +113,99 @@ def evidence_extraction_prompt(
     - Do NOT introduce new claims.
     - If no relevant sentences exist, return an empty list.
     """.strip()
+
+def outcome_sentence_selector_prompt(sentences):
+    numbered = "\n".join(
+        f"{i+1}. ({s['sentence_id']}) {s['text']}"
+        for i, s in enumerate(sentences)
+    )
+
+    return f"""
+    You are selecting outcome sentences from a scientific paper.
+    
+    STRICT RULES:
+    - Return ONLY valid JSON.
+    - Do NOT include explanations, markdown, or code fences.
+    - If no sentence qualifies, return an empty list.
+    
+    Select ONLY sentences that explicitly report study results.
+    Do NOT infer, summarize, or rephrase.
+    
+    Sentences:
+    {numbered}
+    
+    Return EXACTLY this JSON format:
+    {{
+      "selected_sentence_ids": []
+    }}
+    """
+
+def outcome_claim_builder_prompt(sentences):
+    numbered = "\n".join(
+        f"- ({s['sentence_id']}) {s['text']}"
+        for s in sentences
+    )
+
+    return f"""
+    You are generating ONE conservative outcome claim.
+    
+    Rules:
+    - Use ONLY the information explicitly stated in the sentences.
+    - Do NOT add new interpretations or mechanisms.
+    - Do NOT generalize beyond the sentences.
+    - The claim must describe an outcome or association.
+    
+    Sentences:
+    {numbered}
+    
+    Return JSON only:
+    {{
+      "claim": "...",
+      "confidence": 0.6,
+      "evidence_level": "observational"
+    }}
+    """
+
+
+
+CLAIM_FILTER_PROMPT = """
+You are evaluating whether a sentence represents a core research claim
+or merely background information in a scientific paper.
+
+Sentence:
+"{claim}"
+
+Context:
+- Section: {section}
+
+Guidelines:
+- Discard if the sentence states general epidemiology, prevalence,
+  well-known background facts, or introductory context.
+- Keep if the sentence reports research findings, associations,
+  effects, outcomes, or conclusions derived from the study.
+
+Respond in JSON only:
+
+{{
+  "decision": "keep" | "discard",
+  "reason": "background" | "epidemiology" | "general_fact" | "core_finding"
+}}
+"""
+
+CLAIM_TYPE_PROMPT = """
+Classify the following scientific claim into one of the categories:
+
+- background: general context, prior knowledge, epidemiology
+- method: study design, data, analysis methods
+- outcome: results, effects, associations, conclusions
+
+Claim:
+"{claim}"
+
+Respond in JSON only:
+
+{{
+  "type": "background" | "method" | "outcome"
+}}
+"""
 
