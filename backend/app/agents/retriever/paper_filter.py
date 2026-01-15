@@ -3,12 +3,15 @@ from __future__ import annotations
 
 from typing import Dict, List, Tuple
 import json
+from pathlib import Path
 
 from app.core.llm import llm_client, DEFAULT_LLM_MODEL
-from app.agents.retriever.prompts import PAPER_FILTER_SYSTEM
 from app.schemas.query import UserQuery
 from app.schemas.retrieval import Paper
+from app.agents.retriever.prompt_loader import load_prompt
 
+PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "filter_prompt.json"
+PAPER_FILTER_SYSTEM = load_prompt(str(PROMPT_PATH))
 
 class PaperFilter:
     def __init__(self, keep_eval_n: int = 80, keep_uncertain: bool = True, keep_remaining: bool = False):

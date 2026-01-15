@@ -1,13 +1,18 @@
 # app/agents/retriever/query_expander.py
 from __future__ import annotations
 
+import pathlib
 from typing import List, Dict, Any
 import json
+from pathlib import Path
 
 from app.schemas.query import UserQuery
 from app.agents.retriever.types import ExpandedQuery
 from app.core.llm import llm_client, DEFAULT_LLM_MODEL
-from app.agents.retriever.prompts import QUERY_EXPAND_SYSTEM
+from app.agents.retriever.prompt_loader import load_prompt
+
+PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "query_expand_prompt.json"
+QUERY_EXPAND_SYSTEM = load_prompt(str(PROMPT_PATH))
 
 
 class QueryExpander:
