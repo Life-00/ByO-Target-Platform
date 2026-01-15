@@ -481,3 +481,166 @@ def run_extract(
             "Connection": "keep-alive",
         },
     )
+
+
+# ============================================================
+# ✅ Retrieval(StagedPaper)도 업로드처럼 자동 Extract 실행
+# - PDF 로컬 경로(StagedPaper.pdf_storage_path)를 파싱
+# - 페이지 본문을 VectorDB에 인덱싱
+# - 요약을 StagedPaper.summary 컬럼에 저장
+# - claim extraction 결과도 VectorDB에 저장(보조)
+# ============================================================
+
+def index_staged_paper_pages_to_vector_db(
+    sp: StagedPaper, session_id: UUID, user_email: str
+) -> int:
+    """
+    StagedPaper.pdf_storage_path의 PDF를 페이지 단위로 파싱해 VectorDB에 저장
+    """
+    pdf_path = (sp.pdf_storage_path or "").strip()
+    if not pdf_path or not os.path.exists(pdf_path):
+        return 0
+
+    loader = UpstageDocumentParseLoader(
+        file_path=pdf_path,
+        api_key=settings.UPSTAGE_API_KEY,
+        output_format="text",
+    )
+    docs = loader.load()  # 보통 페이지 단위
+
+    texts, metadatas, ids = [], [], []
+    for i, d in enumerate(docs):
+        page_no = i + 1
+        page_text = (d.page_content or "").strip()
+        if not page_text:
+            continue
+
+        texts.append(f"[[Page {page_no}]]\n{page_text}")
+        metadatas.append({
+            "source": sp.source or "Unknown",
+            "title": sp.title,
+            "session_id": str(session_id),
+            "user_email": user_email,
+            "staged_paper_id": str(sp.id),
+            "page": page_no,
+            "kind": "staged_pdf_page",
+        })
+        ids.append(f"staged_{sp.id}_p{page_no}")
+
+    if not texts:
+        return 0
+
+    vector_db = rag_service.get_vector_db()
+    vector_db.add_texts(texts=texts, metadatas=metadatas, ids=ids)
+    return len(texts)
+
+
+def auto_extract_staged_paper(session_id: UUID, staged_paper_id: UUID, user_email: str):
+    """
+    ✅ Retrieval로 확보한 StagedPaper(PDF) 자동 처리:
+    1) 요약 저장 (StagedPaper.summary)
+    2) (근본) 페이지 본문 인덱싱
+    3) claim extraction(옵션/보조)
+    """
+    db = SessionLocal()
+    try:
+        print(f"🚀 [Auto-Process] Start processing StagedPaper ID: {staged_paper_id}")
+
+        sp = db.query(StagedPaper).filter(StagedPaper.id == staged_paper_id).first()
+        if not sp:
+            print(f"[Auto-Process] StagedPaper not found: {staged_paper_id}")
+            return
+
+        pdf_path = (sp.pdf_storage_path or "").strip()
+        if not pdf_path or not os.path.exists(pdf_path):
+            print(f"[Auto-Process] PDF path missing or not exists: {pdf_path}")
+            return
+
+        # 1) 문서 파싱 (Full Text 확보)
+        loader = UpstageDocumentParseLoader(
+            file_path=pdf_path,
+            api_key=settings.UPSTAGE_API_KEY,
+            output_format="text",
+        )
+        docs = loader.load()
+        full_text = " ".join([(d.page_content or "") for d in docs]).strip()
+
+        if not full_text:
+            print("[Auto-Process] Empty parsed text; skip")
+            return
+
+        # -----------------------------------------------------
+        # ✅ [Step 1] 요약 생성 & DB 저장 (StagedPaper.summary)
+        # -----------------------------------------------------
+        print(f"📝 [Auto-Process] Generating Summary for staged '{sp.title}'...")
+        summary_text = generate_korean_summary(full_text)
+
+        sp.summary = summary_text
+        db.add(sp)
+        db.commit()
+        print("✅ [Auto-Process] Staged summary saved!")
+
+        # -----------------------------------------------------
+        # ✅ [Step 2] 페이지 본문 VectorDB 인덱싱 (근본)
+        # -----------------------------------------------------
+        try:
+            cnt = index_staged_paper_pages_to_vector_db(sp=sp, session_id=session_id, user_email=user_email)
+            print(f"✅ [Auto-Process] Indexed staged pages: {cnt}")
+        except Exception as e:
+            print(f"[VectorDB Error][staged pages] {e}")
+
+        # -----------------------------------------------------
+        # ✅ [Step 3] Claim Extraction (보조)
+        # -----------------------------------------------------
+        try:
+            sentences = [s.strip() for s in full_text.split('.') if len(s.strip()) > 10]
+            abstract_sentences = [AbstractSentence(sentence_id=f"{sp.id}_s{i}", text=s) for i, s in enumerate(sentences)]
+            paper = Paper(
+                pmid=str(sp.id),
+                title=sp.title,
+                journal=sp.source or "Staged Paper",
+                abstract_sentences=abstract_sentences,
+                retrieval_reason="retrieval",
+                query_id=str(session_id),
+                pdf_storage_path=pdf_path,
+            )
+            corpus = PaperCorpus(query_id=f"staged_{staged_paper_id}", papers=[paper])
+            instruction = "Extract all key scientific claims and quantitative results."
+            extracted_chunks = extractor_agent.run(corpus, instruction=instruction)
+
+            if extracted_chunks:
+                docs_text, metadatas, ids = [], [], []
+                for i, chunk in enumerate(extracted_chunks):
+                    docs_text.append(
+                        f"Claim: {chunk.claim}\n"
+                        f"Target: {chunk.target or 'N/A'}\n"
+                        f"Confidence: {chunk.confidence}"
+                    )
+                    metadatas.append({
+                        "chunk_id": chunk.chunk_id,
+                        "pmid": chunk.pmid,
+                        "source": sp.source or "Unknown",
+                        "type": chunk.chunk_type,
+                        "session_id": str(session_id),
+                        "user_email": user_email,
+                        "staged_paper_id": str(staged_paper_id),
+                        "kind": "staged_claim",
+                    })
+                    ids.append(f"staged_{session_id}_{staged_paper_id}_{i}")
+
+                vector_db = rag_service.get_vector_db()
+                vector_db.add_texts(texts=docs_text, metadatas=metadatas, ids=ids)
+                print(f"✅ [Auto-Process] Stored staged claims to VectorDB: {len(ids)}")
+            else:
+                print("[Auto-Process] No extracted chunks for staged paper.")
+
+        except Exception as e:
+            print(f"[Auto-Process][Claim Extraction Error] {e}")
+
+        print(f"🎉 [Auto-Process] All Done for staged '{sp.title}'.")
+
+    except Exception as e:
+        print(f"❌ [Auto-Process] Error(staged): {e}")
+        db.rollback()
+    finally:
+        db.close()

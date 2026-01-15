@@ -42,6 +42,7 @@ class StagedPaper(Base):
     url = Column(String, nullable=True)
 
     abstract = Column(Text, nullable=True)
+    summary = Column(Text, nullable=True)
     pdf_storage_path = Column(String, nullable=True)  # PDF 저장 시 경로
 
     # retrieval 점수(없으면 null)

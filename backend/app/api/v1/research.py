@@ -6,7 +6,7 @@ from pathlib import Path
 from uuid import UUID
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse, FileResponse
 from sqlalchemy.orm import Session
 
@@ -103,6 +103,7 @@ def research(
     payload: ResearchRequest,
     email: str = Depends(get_current_user_email),
     db: Session = Depends(get_db),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
 ):
     # 사용자가 확인 전 단계면 user 메시지 저장
     if not payload.is_confirmed:
@@ -211,6 +212,20 @@ def research(
 
             db.commit()
 
+            # ✅ 업로드처럼: PDF가 확보된 StagedPaper는 백그라운드에서 자동 Extract 실행
+            try:
+                from app.api.v1.extract import auto_extract_staged_paper  # lazy import (순환 방지)
+                for sp in saved:
+                    if sp.pdf_storage_path:
+                        background_tasks.add_task(
+                            auto_extract_staged_paper,
+                            session_id=session_id,
+                            staged_paper_id=sp.id,
+                            user_email=email,
+                        )
+            except Exception as e:
+                print(f"[Research] auto_extract_staged_paper hook failed: {e}")
+
             print(f"[Research] DB 적재 완료. (총: {len(saved)}, PDF확보: {pdf_ok})")
 
             # UI용 메시지
@@ -235,7 +250,7 @@ def research(
             print(f"❌ [Research Error]\n{traceback.format_exc()}")
             yield json.dumps({"type": "error", "content": str(e)}, ensure_ascii=False) + "\n"
 
-    return StreamingResponse(event_generator(), media_type="application/x-ndjson")
+    return StreamingResponse(event_generator(), media_type="application/x-ndjson", background=background_tasks)
 
 
 # ------------------------------------------------------------
@@ -320,3 +335,25 @@ def download_paper_pdf_alias(
     db: Session = Depends(get_db),
 ):
     return download_paper_pdf(session_id=session_id, paper_id=paper_id, email=email, db=db)
+
+@router.get("/{session_id}/papers/{paper_id}/summary")
+def get_staged_paper_summary(
+    session_id: UUID,
+    paper_id: UUID,
+    email: str = Depends(get_current_user_email),
+    db: Session = Depends(get_db),
+):
+    paper = (
+        db.query(StagedPaper)
+        .filter(
+            StagedPaper.id == paper_id,
+            StagedPaper.session_id == session_id,
+            StagedPaper.user_email == email,
+        )
+        .first()
+    )
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    # summary 컬럼이 없거나 아직 생성 전이면 빈 문자열로 돌려도 됨
+    return {"paper_id": str(paper.id), "summary": paper.summary or ""}
