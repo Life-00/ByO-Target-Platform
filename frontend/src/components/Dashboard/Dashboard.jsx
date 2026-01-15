@@ -1,10 +1,4 @@
-import React, {
-  useState,
-  useRef,
-  useEffect,
-  useCallback,
-  useMemo,
-} from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -22,13 +16,14 @@ import {
   Loader2,
   LogOut,
   ClipboardCheck,
+  FileText,
 } from "lucide-react";
 import api from "../../api";
 import "./Dashboard.css";
 import PdfAnalyzer from "./PdfAnalyzer";
 
 // ==================================================================================
-// [Component 1] LeftPanel: 세션 및 라이브러리 관리
+// [Component 1] LeftPanel: 세션, 라이브러리 및 리포트 목록 관리
 // ==================================================================================
 const LeftPanel = React.memo(
   ({
@@ -38,14 +33,18 @@ const LeftPanel = React.memo(
     setLeftTab,
     references,
     viewingRef,
+    reports,
+    viewingReport,
     onSelectSession,
     onCreateSessionTrigger,
-    onRemoveSession, // 세션 삭제 함수 추가
+    onRemoveSession,
     onToggleRef,
     onRemoveRef,
     onSelectRef,
+    onSelectReport,
     onUploadTrigger,
     onRetrievalTrigger,
+    onReportTrigger,
     onLogout,
   }) => {
     const fileInputRef = useRef(null);
@@ -76,7 +75,7 @@ const LeftPanel = React.memo(
                 onClick={() => setLeftTab(tab)}
                 className={`tab-btn ${leftTab === tab ? "active" : ""}`}
               >
-                {tab}
+                {tab.toUpperCase()}
               </button>
             ))}
           </div>
@@ -99,7 +98,6 @@ const LeftPanel = React.memo(
                     currentSessionId === s.id ? "active" : ""
                   }`}
                 >
-                  {/* 세션 삭제 버튼 추가 (X표) */}
                   <button
                     className="delete-btn"
                     onClick={(e) => {
@@ -130,7 +128,6 @@ const LeftPanel = React.memo(
                 style={{ width: "100%", marginBottom: "10px" }}
                 onClick={onRetrievalTrigger}
                 disabled={!currentSessionId}
-                title={!currentSessionId ? "세션을 먼저 선택하세요" : undefined}
               >
                 <Zap size={14} /> Retrieval Agent
               </button>
@@ -142,9 +139,6 @@ const LeftPanel = React.memo(
                     currentSessionId && fileInputRef.current.click()
                   }
                   disabled={!currentSessionId}
-                  title={
-                    !currentSessionId ? "세션을 먼저 선택하세요" : undefined
-                  }
                 >
                   <FileUp size={14} /> Local File Upload
                 </button>
@@ -154,8 +148,7 @@ const LeftPanel = React.memo(
                   hidden
                   ref={fileInputRef}
                   onChange={(e) => {
-                    const files = e.target.files;
-                    if (files && files.length) onUploadTrigger(files);
+                    if (e.target.files?.length) onUploadTrigger(e.target.files);
                     e.target.value = "";
                   }}
                 />
@@ -221,22 +214,54 @@ const LeftPanel = React.memo(
             >
               <button
                 className="btn-primary"
-                onClick={() => alert("Synthesizer Agent 준비 중...")}
+                onClick={onReportTrigger}
                 disabled={!currentSessionId}
               >
                 <Sparkles size={14} /> Synthesizer Agent
               </button>
-
               <div className="report-list">
-                <div className="empty-state" style={{ marginTop: "20px" }}>
-                  <ClipboardCheck
-                    size={32}
-                    style={{ opacity: 0.3, marginBottom: "12px" }}
-                  />
-                  <p style={{ fontSize: "12px" }}>
-                    Reports will be archived here.
-                  </p>
-                </div>
+                {reports.length === 0 ? (
+                  <div className="empty-state" style={{ marginTop: "20px" }}>
+                    <ClipboardCheck
+                      size={32}
+                      style={{ opacity: 0.3, marginBottom: "12px" }}
+                    />
+                    <p style={{ fontSize: "12px" }}>
+                      Reports will be archived here.
+                    </p>
+                  </div>
+                ) : (
+                  reports.map((rpt) => (
+                    <div
+                      key={rpt.id}
+                      className={`item-card ${
+                        viewingReport?.id === rpt.id ? "active" : ""
+                      }`}
+                      onClick={() => onSelectReport(rpt)}
+                    >
+                      <div className="card-content">
+                        <FileText
+                          size={18}
+                          color={
+                            viewingReport?.id === rpt.id
+                              ? "var(--primary)"
+                              : "#cbd5e1"
+                          }
+                        />
+                        <div className="item-info">
+                          <div className="item-title">
+                            {rpt.user_context.slice(0, 20)}...
+                          </div>
+                          <div className="item-meta">
+                            <span className="badge">
+                              {new Date(rpt.created_at).toLocaleDateString()}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           )}
@@ -252,11 +277,12 @@ const LeftPanel = React.memo(
 );
 
 // ==================================================================================
-// [Component 2] CenterPanel: 생략 없음
+// [Component 2] CenterPanel: 리포트 탭 뷰어 포함
 // ==================================================================================
 const CenterPanel = React.memo(
   ({
     viewingRef,
+    viewingReport,
     centerTab,
     setCenterTab,
     pdfUrl,
@@ -268,7 +294,7 @@ const CenterPanel = React.memo(
     return (
       <section className="center-panel">
         <div className="center-header">
-          {["original", "analysis", "summary"].map((tab) => (
+          {["original", "analysis", "summary", "report"].map((tab) => (
             <button
               key={tab}
               onClick={() => setCenterTab(tab)}
@@ -279,7 +305,24 @@ const CenterPanel = React.memo(
           ))}
         </div>
         <div className="content-area custom-scrollbar">
-          {!viewingRef ? (
+          {centerTab === "report" ? (
+            !viewingReport ? (
+              <div className="empty-state">
+                목록에서 리포트를 선택해 주세요.
+              </div>
+            ) : (
+              <div className="doc-paper">
+                <div className="doc-header-meta">
+                  Synthesized Research Report
+                </div>
+                <div className="markdown-body">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {viewingReport.final_report}
+                  </ReactMarkdown>
+                </div>
+              </div>
+            )
+          ) : !viewingRef ? (
             <div className="empty-state">문서를 선택해 주세요.</div>
           ) : (
             <div style={{ height: "100%" }}>
@@ -347,7 +390,7 @@ const CenterPanel = React.memo(
                       >
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>
                           {summaryContent ||
-                            "이 파일에 대해 생성된 요약 정보가 아직 없습니다. 분석이 완료될 때까지 기다려 주세요."}
+                            "이 파일에 대해 생성된 요약 정보가 아직 없습니다."}
                         </ReactMarkdown>
                       </div>
                     </div>
@@ -363,7 +406,7 @@ const CenterPanel = React.memo(
 );
 
 // ==================================================================================
-// [Component 3] RightPanel: 생략 없음
+// [Component 3] RightPanel: 로직 유지
 // ==================================================================================
 const RightPanel = React.memo(
   ({
@@ -423,15 +466,6 @@ const RightPanel = React.memo(
                       </button>
                     </div>
                   )}
-                  {m.evidence && (
-                    <button
-                      className="mini-btn"
-                      style={{ marginTop: "8px" }}
-                      onClick={() => onExecuteHighlight(m.evidence)}
-                    >
-                      <ExternalLink size={12} /> 본문 근거 확인
-                    </button>
-                  )}
                 </div>
               </div>
             </div>
@@ -471,7 +505,7 @@ const RightPanel = React.memo(
 );
 
 // ==================================================================================
-// [Main] Dashboard: 로직 통합
+// [Main] Dashboard: 로직 통합 및 에러 방지
 // ==================================================================================
 const Dashboard = ({ onLogout }) => {
   const [highlightText, setHighlightText] = useState("");
@@ -479,6 +513,8 @@ const Dashboard = ({ onLogout }) => {
   const [currentSessionId, setCurrentSessionId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [references, setReferences] = useState([]);
+  const [reports, setReports] = useState([]);
+  const [viewingReport, setViewingReport] = useState(null);
   const [leftTab, setLeftTab] = useState("library");
   const [centerTab, setCenterTab] = useState("analysis");
   const [viewingRef, setViewingRef] = useState(null);
@@ -487,10 +523,14 @@ const Dashboard = ({ onLogout }) => {
   const [summaryContent, setSummaryContent] = useState("");
   const [isSummaryLoading, setIsSummaryLoading] = useState(false);
   const [isWaiting, setIsWaiting] = useState(false);
+
+  // Modals State
   const [showRetrievalModal, setShowRetrievalModal] = useState(false);
   const [retrievalQuery, setRetrievalQuery] = useState("");
   const [showSessionModal, setShowSessionModal] = useState(false);
   const [newSessionTitle, setNewSessionTitle] = useState("");
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportInstruction, setReportInstruction] = useState("");
 
   const fetchSessionData = useCallback(async (sessionId) => {
     if (!sessionId) return;
@@ -503,10 +543,19 @@ const Dashboard = ({ onLogout }) => {
           api.get(`/sessions/${sessionId}/selections`),
         ]);
       setMessages(msgRes.data || []);
+
+      // 리포트 API는 별도로 호출하여 에러 시 라이브러리 목록에 영향을 주지 않도록 함
+      try {
+        const reportsRes = await api.get(`/sessions/${sessionId}/reports`);
+        setReports(reportsRes.data || []);
+      } catch (err) {
+        setReports([]);
+      }
+
       const selectedIds = new Set(
         (selectionsRes.data || []).map((s) => s.item_id)
       );
-      const process = (items, type) =>
+      const processItems = (items, type) =>
         items.map((item) => ({
           id: item.id || item.file_id,
           title: type === "file" ? item.original_name : item.title,
@@ -516,8 +565,8 @@ const Dashboard = ({ onLogout }) => {
           checked: selectedIds.has(item.id || item.file_id),
         }));
       setReferences([
-        ...process(filesRes.data || [], "file"),
-        ...process(candidatesRes.data || [], "paper"),
+        ...processItems(filesRes.data || [], "file"),
+        ...processItems(candidatesRes.data || [], "paper"),
       ]);
     } catch (e) {
       console.error("Data fetch error:", e);
@@ -539,7 +588,6 @@ const Dashboard = ({ onLogout }) => {
           URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }))
         );
       } catch (e) {
-        console.error("PDF Load Error:", e);
         setPdfUrl(null);
       } finally {
         setIsPdfLoading(false);
@@ -552,10 +600,8 @@ const Dashboard = ({ onLogout }) => {
             ? `/sessions/${currentSessionId}/files/${ref.id}/summary`
             : `/sessions/${currentSessionId}/papers/${ref.id}/summary`;
         const sRes = await api.get(summaryUrl);
-        const summaryText = sRes.data.content || sRes.data.summary || "";
-        setSummaryContent(summaryText);
+        setSummaryContent(sRes.data.content || sRes.data.summary || "");
       } catch (e) {
-        console.error("Summary Load Error:", e);
         setSummaryContent("");
       } finally {
         setIsSummaryLoading(false);
@@ -565,16 +611,9 @@ const Dashboard = ({ onLogout }) => {
   );
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (token) api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
-    else delete api.defaults.headers.common["Authorization"];
-  }, []);
-
-  useEffect(() => {
     api.get("/sessions").then((res) => {
       setSessions(res.data || []);
-      // 세션 목록이 있고 선택된 세션이 없으면 첫 번째 세션 자동 선택
-      if (res.data && res.data.length > 0 && !currentSessionId) {
+      if (res.data?.length > 0 && !currentSessionId) {
         setCurrentSessionId(res.data[0].id);
         fetchSessionData(res.data[0].id);
       }
@@ -595,23 +634,15 @@ const Dashboard = ({ onLogout }) => {
       setShowSessionModal(false);
       setNewSessionTitle("");
     } catch (e) {
-      console.error("Session creation error:", e);
+      console.error(e);
     }
   };
 
-  // [수정] 세션 삭제 로직 추가
   const handleRemoveSession = async (sessionId) => {
-    if (
-      !window.confirm(
-        "이 세션을 삭제하시겠습니까? 세션 내의 모든 파일과 대화가 사라집니다."
-      )
-    )
-      return;
+    if (!window.confirm("세션을 삭제하시겠습니까?")) return;
     try {
       await api.delete(`/sessions/${sessionId}`);
       setSessions((prev) => prev.filter((s) => s.id !== sessionId));
-
-      // 현재 선택된 세션을 삭제한 경우 초기화
       if (currentSessionId === sessionId) {
         setCurrentSessionId(null);
         setMessages([]);
@@ -619,32 +650,15 @@ const Dashboard = ({ onLogout }) => {
         setViewingRef(null);
       }
     } catch (e) {
-      console.error("Session delete error:", e);
-      alert("세션 삭제에 실패했습니다.");
+      console.error(e);
     }
   };
 
   const processStreamResponse = useCallback(
     async (response) => {
-      if (!response?.ok) {
-        const text = await response.text().catch(() => "");
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "ai",
-            content: text || `요청 실패 (HTTP ${response?.status ?? "?"})`,
-          },
-        ]);
-        return;
-      }
-      const reader = response.body?.getReader?.();
-      if (!reader) {
-        setMessages((prev) => [
-          ...prev,
-          { role: "ai", content: "스트리밍 응답을 읽을 수 없습니다." },
-        ]);
-        return;
-      }
+      if (!response?.ok) return;
+      const reader = response.body?.getReader();
+      if (!reader) return;
       const decoder = new TextDecoder("utf-8");
       let buffer = "";
       try {
@@ -659,128 +673,145 @@ const Dashboard = ({ onLogout }) => {
             if (!line) continue;
             try {
               const data = JSON.parse(line);
-              const t = data.type;
-              if (t === "log") {
+              if (data.type === "log") {
                 setMessages((prev) => {
                   const last = prev[prev.length - 1];
-                  if (last && last.isLog) {
+                  if (last?.isLog)
                     return [
                       ...prev.slice(0, -1),
                       { role: "ai", content: data.content, isLog: true },
                     ];
-                  }
                   return [
                     ...prev,
                     { role: "ai", content: data.content, isLog: true },
                   ];
                 });
-              } else if (t === "proposal") {
+              } else if (data.type === "proposal") {
                 setMessages((prev) => [
                   ...prev,
                   {
                     role: "ai",
                     content: data.content,
                     isProposal: true,
-                    agentType: "retrieval",
+                    agentType: data.analysis?.agent_type || "retrieval",
                     analysisData: data.analysis,
                   },
                 ]);
-              } else if (t === "result" || t === "message" || t === "error") {
-                setMessages((prev) => [
-                  ...prev,
-                  { role: "ai", content: data.content },
-                ]);
-                if (t === "result") {
-                  setTimeout(() => {
-                    if (currentSessionId) fetchSessionData(currentSessionId);
-                  }, 800);
-                }
+              } else if (data.type === "result" || data.type === "message") {
+                const content =
+                  data.content || (data.data ? data.data.content : "");
+                if (content)
+                  setMessages((prev) => [
+                    ...prev,
+                    { role: "ai", content: content },
+                  ]);
+                if (data.type === "result")
+                  setTimeout(
+                    () =>
+                      currentSessionId && fetchSessionData(currentSessionId),
+                    800
+                  );
               }
-            } catch (e) {
-              console.error("Stream Parse Error", e);
-            }
+            } catch (e) {}
           }
         }
-      } catch (err) {
-        console.error("Stream Read Error", err);
-        setMessages((prev) => [
-          ...prev,
-          { role: "ai", content: "스트리밍 중 오류가 발생했습니다." },
-        ]);
-      }
+      } catch (err) {}
     },
     [currentSessionId, fetchSessionData]
   );
 
   const handleRetrieval = useCallback(async () => {
-    if (!currentSessionId) return;
-    const q = (retrievalQuery || "").trim();
-    if (!q) return;
+    if (!currentSessionId || !retrievalQuery.trim()) return;
     setShowRetrievalModal(false);
-    setRetrievalQuery("");
     setLeftTab("library");
-    setMessages((prev) => [...prev, { role: "user", content: q }]);
+    setMessages((prev) => [...prev, { role: "user", content: retrievalQuery }]);
     setIsWaiting(true);
     try {
       const token = localStorage.getItem("token");
-      const baseUrl = api.defaults?.baseURL || "";
       const res = await fetch(
-        `${baseUrl}/sessions/${currentSessionId}/research`,
+        `${api.defaults.baseURL}/sessions/${currentSessionId}/research`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ query: q, is_confirmed: false }),
+          body: JSON.stringify({ query: retrievalQuery, is_confirmed: false }),
         }
       );
       await processStreamResponse(res);
+      setRetrievalQuery("");
     } catch (e) {
-      setMessages((prev) => [
-        ...prev,
-        { role: "ai", content: `검색 요청 실패: ${e?.message || e}` },
-      ]);
     } finally {
       setIsWaiting(false);
     }
   }, [currentSessionId, retrievalQuery, processStreamResponse]);
 
+  const handleGenerateReport = async () => {
+    if (!currentSessionId || !reportInstruction.trim()) return;
+    const selectedIds = references.filter((r) => r.checked).map((r) => r.id);
+    setShowReportModal(false);
+    setLeftTab("report");
+    setIsWaiting(true);
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(
+        `${api.defaults.baseURL}/sessions/${currentSessionId}/report`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            prompt: reportInstruction,
+            is_confirmed: false,
+            selected_ids: selectedIds,
+          }),
+        }
+      );
+      await processStreamResponse(res);
+      setReportInstruction("");
+    } catch (e) {
+    } finally {
+      setIsWaiting(false);
+    }
+  };
+
   const handleConfirmAction = useCallback(
     async (agentType, analysisData) => {
-      if (agentType !== "retrieval" || !currentSessionId) return;
+      if (!currentSessionId) return;
       setMessages((prev) => {
         const msgs = [...prev];
-        const last = msgs[msgs.length - 1];
-        if (last && last.isProposal)
-          msgs[msgs.length - 1] = { ...last, isProposal: false };
+        if (msgs[msgs.length - 1]?.isProposal)
+          msgs[msgs.length - 1].isProposal = false;
         return [...msgs, { role: "user", content: "진행해 주세요." }];
       });
       setIsWaiting(true);
       try {
         const token = localStorage.getItem("token");
-        const baseUrl = api.defaults?.baseURL || "";
+        const endpoint = agentType === "synthesizer" ? "report" : "research";
+        const body =
+          agentType === "synthesizer"
+            ? { is_confirmed: true }
+            : {
+                query: "confirmed",
+                is_confirmed: true,
+                confirmed_intent: analysisData,
+              };
         const res = await fetch(
-          `${baseUrl}/sessions/${currentSessionId}/research`,
+          `${api.defaults.baseURL}/sessions/${currentSessionId}/${endpoint}`,
           {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+              Authorization: `Bearer ${token}`,
             },
-            body: JSON.stringify({
-              query: "confirmed",
-              is_confirmed: true,
-              confirmed_intent: analysisData,
-            }),
+            body: JSON.stringify(body),
           }
         );
         await processStreamResponse(res);
       } catch (e) {
-        setMessages((prev) => [
-          ...prev,
-          { role: "ai", content: `실행 오류: ${e?.message || e}` },
-        ]);
       } finally {
         setIsWaiting(false);
       }
@@ -788,47 +819,24 @@ const Dashboard = ({ onLogout }) => {
     [currentSessionId, processStreamResponse]
   );
 
-  const handleCancelAction = useCallback(() => {
-    setMessages((prev) => {
-      const msgs = [...prev];
-      const last = msgs[msgs.length - 1];
-      if (last && last.isProposal) {
-        msgs[msgs.length - 1] = {
-          ...last,
-          isProposal: false,
-          content: `${last.content}\n\n*(취소됨)*`,
-        };
-      }
-      return msgs;
-    });
-    setIsWaiting(false);
-  }, []);
-
   const handleSendMessage = async (text) => {
     if (!text.trim() || isWaiting || !currentSessionId) return;
     setMessages((prev) => [...prev, { role: "user", content: text }]);
     setIsWaiting(true);
     try {
-      const selectedRefs = references.filter((r) => r.checked);
-      const contextItems = selectedRefs.map((r) => ({
-        id: r.id,
-        type: r.itemType === "file" ? "uploaded_file" : "staged_paper",
-        status: r.status || "uploaded",
-        title: r.title,
-      }));
       const res = await api.post(`/sessions/${currentSessionId}/chat`, {
         message: text,
-        context_items: contextItems,
+        context_items: references
+          .filter((r) => r.checked)
+          .map((r) => ({
+            id: r.id,
+            type: r.itemType === "file" ? "uploaded_file" : "staged_paper",
+            status: r.status,
+            title: r.title,
+          })),
       });
-      setMessages((prev) => [
-        ...prev,
-        { role: "ai", content: res.data.reply, evidence: res.data.evidence },
-      ]);
+      setMessages((prev) => [...prev, { role: "ai", content: res.data.reply }]);
     } catch (e) {
-      setMessages((prev) => [
-        ...prev,
-        { role: "ai", content: "채팅 요청 실패. 콘솔 로그를 확인해 주세요." },
-      ]);
     } finally {
       setIsWaiting(false);
       fetchSessionData(currentSessionId);
@@ -837,43 +845,23 @@ const Dashboard = ({ onLogout }) => {
 
   const uploadFiles = useCallback(
     async (files) => {
-      if (!currentSessionId) {
-        alert("세션을 먼저 선택하세요.");
-        return;
-      }
-      if (!files || files.length === 0) return;
-      const tempRefs = Array.from(files).map((file, i) => ({
-        id: `temp-${Date.now()}-${i}`,
-        title: file.name,
-        type: "FILE",
-        status: "uploading",
-        checked: true,
-        isLocal: true,
-        itemType: "file",
-      }));
-      setReferences((prev) => [...tempRefs, ...prev]);
+      if (!currentSessionId || !files?.length) return;
       const fd = new FormData();
       Array.from(files).forEach((f) => fd.append("files", f));
       try {
         const res = await api.post(`/sessions/${currentSessionId}/files`, fd, {
           headers: { "Content-Type": "multipart/form-data" },
         });
-        const uploaded = Array.isArray(res.data) ? res.data : [];
-        for (const item of uploaded) {
-          const fileId = item.file_id ?? item.id ?? item.uploaded_file_id;
-          if (!fileId) continue;
-          await api.post(`/sessions/${currentSessionId}/selections/toggle`, {
-            item_type: "uploaded_file",
-            item_id: fileId,
-          });
-        }
-        await fetchSessionData(currentSessionId);
-      } catch (e) {
-        alert("업로드 실패.");
-        setReferences((prev) =>
-          prev.filter((r) => !String(r.id).startsWith("temp-"))
+        await Promise.all(
+          (res.data || []).map((item) =>
+            api.post(`/sessions/${currentSessionId}/selections/toggle`, {
+              item_type: "uploaded_file",
+              item_id: item.file_id || item.id,
+            })
+          )
         );
-      }
+        await fetchSessionData(currentSessionId);
+      } catch (e) {}
     },
     [currentSessionId, fetchSessionData]
   );
@@ -889,27 +877,19 @@ const Dashboard = ({ onLogout }) => {
           item_type: ref.itemType === "file" ? "uploaded_file" : "staged_paper",
           item_id: ref.id,
         });
-      } catch (e) {
-        setReferences((prev) =>
-          prev.map((r) => (r.id === ref.id ? { ...r, checked: !r.checked } : r))
-        );
-      }
+      } catch (e) {}
     },
     [currentSessionId]
   );
 
   const removeReference = useCallback(
     async (ref) => {
-      if (!currentSessionId) return;
-      if (!window.confirm("파일을 삭제하시겠습니까?")) return;
+      if (!currentSessionId || !window.confirm("삭제하시겠습니까?")) return;
       try {
-        if (ref.itemType === "file") {
+        if (ref.itemType === "file")
           await api.delete(`/sessions/${currentSessionId}/files/${ref.id}`);
-        }
         await fetchSessionData(currentSessionId);
-      } catch (e) {
-        alert("삭제 실패.");
-      }
+      } catch (e) {}
     },
     [currentSessionId, fetchSessionData]
   );
@@ -922,22 +902,29 @@ const Dashboard = ({ onLogout }) => {
         leftTab={leftTab}
         setLeftTab={setLeftTab}
         references={references}
-        viewingRef={viewingRef}
+        reports={reports}
+        viewingReport={viewingReport}
         onSelectSession={(id) => {
           setCurrentSessionId(id);
           fetchSessionData(id);
         }}
         onSelectRef={setViewingRef}
+        onSelectReport={(rpt) => {
+          setViewingReport(rpt);
+          setCenterTab("report");
+        }}
         onRetrievalTrigger={() => setShowRetrievalModal(true)}
         onUploadTrigger={uploadFiles}
         onLogout={onLogout}
         onToggleRef={toggleReference}
         onRemoveRef={removeReference}
-        onRemoveSession={handleRemoveSession} // [수정] 삭제 핸들러 전달
+        onRemoveSession={handleRemoveSession}
         onCreateSessionTrigger={() => setShowSessionModal(true)}
+        onReportTrigger={() => setShowReportModal(true)}
       />
       <CenterPanel
         viewingRef={viewingRef}
+        viewingReport={viewingReport}
         centerTab={centerTab}
         setCenterTab={setCenterTab}
         pdfUrl={pdfUrl}
@@ -950,15 +937,11 @@ const Dashboard = ({ onLogout }) => {
         messages={messages}
         isWaiting={isWaiting}
         onSendMessage={handleSendMessage}
-        onExecuteHighlight={(txt) => {
-          setCenterTab("analysis");
-          setHighlightText(txt);
-        }}
         onConfirmAction={handleConfirmAction}
-        onCancelAction={handleCancelAction}
+        onCancelAction={() => setIsWaiting(false)}
       />
 
-      {/* Session 생성 모달 */}
+      {/* --- Modals --- */}
       {showSessionModal && (
         <div
           className="modal-overlay"
@@ -968,20 +951,13 @@ const Dashboard = ({ onLogout }) => {
         >
           <div className="modal-box">
             <div className="modal-header">
-              <h3>New Research Session</h3>
-              <button
-                className="icon-btn"
-                onClick={() => setShowSessionModal(false)}
-              >
+              <h3>New Session</h3>
+              <button onClick={() => setShowSessionModal(false)}>
                 <X size={16} />
               </button>
             </div>
-            <p className="modal-desc">
-              새로운 연구 세션의 이름을 입력해 주세요.
-            </p>
             <input
               className="modal-input"
-              placeholder="예: 2026 AI 트렌드 분석"
               value={newSessionTitle}
               onChange={(e) => setNewSessionTitle(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleCreateSession()}
@@ -994,19 +970,13 @@ const Dashboard = ({ onLogout }) => {
               >
                 Cancel
               </button>
-              <button
-                className="btn-primary"
-                onClick={handleCreateSession}
-                disabled={!newSessionTitle.trim()}
-              >
-                <Plus size={14} /> Create
+              <button className="btn-primary" onClick={handleCreateSession}>
+                Create
               </button>
             </div>
           </div>
         </div>
       )}
-
-      {/* Retrieval 모달 */}
       {showRetrievalModal && (
         <div
           className="modal-overlay"
@@ -1014,23 +984,15 @@ const Dashboard = ({ onLogout }) => {
             e.target === e.currentTarget && setShowRetrievalModal(false)
           }
         >
-          <div className="modal-box" role="dialog" aria-modal="true">
+          <div className="modal-box">
             <div className="modal-header">
               <h3>Retrieval Agent</h3>
-              <button
-                className="icon-btn"
-                onClick={() => setShowRetrievalModal(false)}
-              >
+              <button onClick={() => setShowRetrievalModal(false)}>
                 <X size={16} />
               </button>
             </div>
-            <p className="modal-desc">
-              찾고 싶은 연구 주제/질문을 입력하면, 후보 논문을 검색해
-              라이브러리에 추가합니다.
-            </p>
             <textarea
               className="modal-textarea"
-              placeholder="예: 운동이 알츠하이머 진행에 미치는 영향 (2020~)"
               value={retrievalQuery}
               onChange={(e) => setRetrievalQuery(e.target.value)}
               rows={4}
@@ -1042,14 +1004,81 @@ const Dashboard = ({ onLogout }) => {
               >
                 Cancel
               </button>
-              <button
-                className="btn-primary"
-                onClick={handleRetrieval}
-                disabled={
-                  !retrievalQuery.trim() || !currentSessionId || isWaiting
-                }
+              <button className="btn-primary" onClick={handleRetrieval}>
+                Run
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showReportModal && (
+        <div
+          className="modal-overlay"
+          onMouseDown={(e) =>
+            e.target === e.currentTarget && setShowReportModal(false)
+          }
+        >
+          <div className="modal-box">
+            <div className="modal-header">
+              <h3>Synthesizer Agent</h3>
+              <button onClick={() => setShowReportModal(false)}>
+                <X size={16} />
+              </button>
+            </div>
+            <textarea
+              className="modal-textarea"
+              value={reportInstruction}
+              onChange={(e) => setReportInstruction(e.target.value)}
+              rows={3}
+            />
+            <div style={{ padding: "0 24px 16px" }}>
+              <p
+                style={{
+                  fontSize: "11px",
+                  fontWeight: "700",
+                  color: "#94a3b8",
+                  marginBottom: "8px",
+                }}
               >
-                <Play size={14} /> Run
+                Selected Documents
+              </p>
+              <div
+                style={{
+                  maxHeight: "120px",
+                  overflowY: "auto",
+                  border: "1px solid var(--border)",
+                  borderRadius: "8px",
+                  background: "#f8fafc",
+                  padding: "8px",
+                }}
+              >
+                {references
+                  .filter((r) => r.checked)
+                  .map((ref) => (
+                    <div
+                      key={ref.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        fontSize: "12px",
+                      }}
+                    >
+                      <FileText size={14} color="var(--primary)" />
+                      <span>{ref.title}</span>
+                    </div>
+                  ))}
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button
+                className="btn-secondary"
+                onClick={() => setShowReportModal(false)}
+              >
+                Cancel
+              </button>
+              <button className="btn-primary" onClick={handleGenerateReport}>
+                Generate
               </button>
             </div>
           </div>
