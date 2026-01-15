@@ -22,6 +22,7 @@ class Paper(BaseModel):
     url: Optional[str] = None
     pdf_url: Optional[str] = None
     license: Optional[str] = None
+
     has_fulltext: bool = False
     title: str
     year: Optional[int] = None

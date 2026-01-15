@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     UPSTAGE_API_KEY: str
     UPSTAGE_BASE_URL: str = "https://api.upstage.ai/v1"
     UPSTAGE_MODEL: str = "solar-pro2"
+
+    # ---------- Embedding ----------
     UPSTAGE_EMBED_MODEL: str = "solar-embedding-1-large"
 
     # ---------- JWT/Auth ----------
@@ -29,6 +31,7 @@ class Settings(BaseSettings):
     # ---------- Chroma ----------
     CHROMA_HOST: str = "localhost"
     CHROMA_PORT: int = 8000
+    CHROMA_PERSIST_DIR: str = "/tmp/chroma_db"
 
     # ---------- CORS ------------
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:80,http://localhost"

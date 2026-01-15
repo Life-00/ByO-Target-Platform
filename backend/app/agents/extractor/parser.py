@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 from pydantic import BaseModel
 
 
@@ -73,3 +73,13 @@ class ExtractedClaim(BaseModel):
     evidence_level: Optional[str]
     confidence: Optional[float]
     notes: Optional[str]
+
+# ===== Evidence Models =====
+
+class EvidenceSpanModel(BaseModel):
+    sentence_id: str
+    role: str  # support | limitation
+
+
+class EvidenceExtractionResult(BaseModel):
+    evidence_spans: List[EvidenceSpanModel]

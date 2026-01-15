@@ -2,6 +2,10 @@ from __future__ import annotations
 from typing import List, Dict
 
 def claim_extraction_prompt(sentence: list[dict], focus_instruction: str = None) -> str:
+    """
+    Phase 1: Claim-Extractor (Abstract 기반)
+    """
+
     focus_prompt = ""
     if focus_instruction:
         focus_prompt = f"""
@@ -60,3 +64,45 @@ def claim_extraction_prompt(sentence: list[dict], focus_instruction: str = None)
     - Evidence level examples: review, clinical, preclinical, unknown.
     - Confidence should reflect how explicit the claim is.
     """.strip()
+
+
+def evidence_extraction_prompt(
+    claim: str,
+    sentences: list[dict],
+) -> str:
+    """
+    Phase 2: Evidence-Extractor (Results / Discussion 기반)
+    """
+    return f"""
+    You are a scientific evidence extractor.
+    
+    Given the following CLAIM:
+    \"\"\"{claim}\"\"\"
+    
+    From the provided sentences, identify ONLY sentences that are directly relevant.
+    
+    Sentence roles:
+    - support: empirical or experimental results that support the claim
+    - limitation: statements that qualify, restrict, or limit the claim
+    
+    Sentences:
+    \"\"\"{sentences}\"\"\"
+    
+    Return STRICT JSON only in the following format:
+    
+    {{
+      "evidence_spans": [
+        {{
+          "sentence_id": string,
+          "role": "support" | "limitation" # 주장 지지 ? or 조건/한계 존재?
+        }}
+      ]
+    }}
+    
+    Guidelines:
+    - Do NOT introduce new claims.
+    - Do NOT paraphrase sentences.
+    - Select sentences based on role, not section importance.
+    - If no relevant sentences exist, return an empty list.
+    """.strip()
+

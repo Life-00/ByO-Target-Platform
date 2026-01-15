@@ -3,18 +3,17 @@
 from __future__ import annotations
 from typing import List
 
-from app.agents.extractor.prompts import claim_extraction_prompt
+from app.agents.extractor.prompts import claim_extraction_prompt, evidence_extraction_prompt
 from app.agents.extractor.parser import (
     parse_json_response,
     ExtractedClaim,
+    EvidenceExtractionResult,
 )
 from app.schemas.retrieval import PaperCorpus, Paper
 from app.schemas.knowledge import KnowledgeChunk
 from app.core.llm import call_llm
 
-# from app.services.chromadb.ingest_chunk import add_chunks_to_chromadb
-
-print(">>> USING UPDATED ExtractorAgent (LLM-only, no enums) <<<")
+from app.service.chromadb.ingest_chunk import add_chunks_to_chromadb
 
 class ExtractorAgent:
     """
@@ -40,33 +39,35 @@ class ExtractorAgent:
                 if claim.confidence is not None and claim.confidence < self.min_confidence:
                     continue
 
+                evidence = self._extract_evidence(paper, claim)
+
                 chunk = self._assemble_chunk(
                     paper=paper,
                     extracted=claim,
                     idx=idx,
+                    evidence_spans=evidence,
                 )
                 chunks.append(chunk)
 
         return chunks
 
     # ChromaDB에 생성한 KnowledgeChunk 저장
-    # def run_and_store(self, corpus: PaperCorpus) -> List[KnowledgeChunk]:
-    #     """
-    #     Execute extraction and persist resulting KnowledgeChunks into ChromaDB.
-    #
-    #     - Includes side effects (vector DB write)
-    #     - Intended for ingestion pipeline
-    #     """
-    #     chunks = self.run(corpus)
-    #
-    #     if chunks:
-    #         try:
-    #             add_chunks_to_chromadb(chunks)
-    #         except Exception as e:
-    #             print("[ExtractorAgent] Failed to store chunks:", e)
-    #
-    #     return chunks
+    def run_and_store(self, corpus: PaperCorpus) -> List[KnowledgeChunk]:
+        """
+        Execute extraction and persist resulting KnowledgeChunks into ChromaDB.
 
+        - Includes side effects (vector DB write)
+        - Intended for ingestion pipeline
+        """
+        chunks = self.run(corpus)
+
+        if chunks:
+            try:
+                add_chunks_to_chromadb(chunks)
+            except Exception as e:
+                print("[Extractor Agent] Failed to store chunks:", e)
+
+        return chunks
 
     # ---------- Step 1: Claim extraction ----------
     def _extract_claims(self, paper: Paper) -> List[ExtractedClaim]:
@@ -76,7 +77,10 @@ class ExtractorAgent:
         """
 
         sentence_payload = [
-            {"sentence_id": s.sentence_id, "text": s.text}
+            {
+                "sentence_id": s.sentence_id,
+                "text": s.text
+            }
             for s in (paper.abstract_sentences or [])
             if s.text
         ]
@@ -87,41 +91,93 @@ class ExtractorAgent:
         prompt = claim_extraction_prompt(sentence_payload)
         response = call_llm(prompt)
 
-        # 디버깅
-        # print("\n[DEBUG extract_claims LLM raw response]\n", response)
-
         # LLM이 단일 claim 객체를 반환하는 구조
         try:
             data = parse_json_response(response)
             extracted = ExtractedClaim(**data)
             return [extracted]
         except Exception as e:
-            print("[Extractor] Failed to parse ExtractedClaim:", e)
+            print("[Claim Extractor] parse failed:", e)
             return []
 
-        # data = parse_json_response(response)
-        # raw_claims = data.get("claims", [])
-        #
-        # try:
-        #     extracted_claim = ExtractedClaim(**data)
-        #     return [extracted_claim]
-        # except Exception as e:
-        #     print("[Extractor] Failed to parse ExtractedClaim:", e)
-        #     return []
+    # ---------- Phase 2: Evidence Extraction ----------
 
-    # ---------- Step 2: KnowledgeChunk assembly ----------
+    def _extract_evidence(
+            self,
+            paper: Paper,
+            claim: ExtractedClaim,
+    ) -> List[dict]:
+        """
+        Evidence-Extractor
+        - Default: Results only
+        - Role-based (support / limitation)
+        """
+
+        sentences = []
+
+        # Results
+        for s in (paper.result_sentences or []):
+            if s.text:
+                sentences.append(
+                    {
+                        "sentence_id": s.sentence_id,
+                        "section": "results",
+                        "text": s.text,
+                    }
+                )
+
+        # (Optional) Discussion – limitation only
+        for s in (paper.discussion_sentences or []):
+            if s.text:
+                sentences.append(
+                    {
+                        "sentence_id": s.sentence_id,
+                        "section": "discussion",
+                        "text": s.text,
+                    }
+                )
+
+        if not sentences:
+            return []
+
+        prompt = evidence_extraction_prompt(
+            claim=claim.claim,
+            sentences=sentences,
+        )
+        response = call_llm(prompt)
+
+        try:
+            data = parse_json_response(response)
+            parsed = EvidenceExtractionResult(**data)
+        except Exception as e:
+            print("[Evidence Extractor] parse failed:", e)
+            return []
+
+        # section 정보 재결합
+        sentence_section_map = {
+            s["sentence_id"]: s["section"] for s in sentences
+        }
+
+        return [
+            {
+                "sentence_id": ev.sentence_id,
+                "section": sentence_section_map.get(ev.sentence_id),
+                "role": ev.role,
+            }
+            for ev in parsed.evidence_spans
+        ]
+
+
+    # ---------- KnowledgeChunk assembly ----------
 
     def _assemble_chunk(
         self,
         paper: Paper,
         extracted: ExtractedClaim,
         idx: int,
+        evidence_spans: List[dict],
     ) -> KnowledgeChunk:
-        """
-        Assemble KnowledgeChunk directly from LLM-extracted claim.
-        """
 
-        # Stable, traceable chunk id
         chunk_id = f"{paper.pmid}_claim_{idx}"
 
         metadata = {
@@ -134,8 +190,8 @@ class ExtractorAgent:
                 if extracted.salience
                 else None
             ),
-            # "source_sentence_id": extracted.source_sentence_id,
-            "notes": extracted.notes
+            "notes": extracted.notes,
+            "evidence_spans": evidence_spans,
         }
 
         return KnowledgeChunk(
@@ -154,6 +210,6 @@ class ExtractorAgent:
             evidence_level=extracted.evidence_level,
             confidence=extracted.confidence,
 
-            chunk_type="claim",  # neutral default; refine later
+            chunk_type="claim",
             metadata=metadata,
         )
