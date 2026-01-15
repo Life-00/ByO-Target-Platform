@@ -888,3 +888,23 @@ button {
   padding: 0 24px; /* 기존 32px에서 약간 줄여 탭 공간 확보 */
   gap: 16px; /* 탭 사이 간격 조정 */
 }
+
+.list-area .btn-primary,
+.list-area .btn-secondary {
+  flex-shrink: 0; /* 버튼 크기 유지 */
+}
+
+/* Report 탭 전용 스타일 */
+.report-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+}
+
+.report-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}

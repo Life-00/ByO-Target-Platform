@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db, SessionLocal
+from app.core.tokenizer import safe_chunks_for_embedding
 from app.api.deps import get_current_user_email
 from app.models.pipeline import StagedPaper, UploadedFile, Selection
 from app.models.chat import Message
@@ -192,17 +193,22 @@ def index_uploaded_file_pages_to_vector_db(
         if not page_text:
             continue
 
-        texts.append(f"[[Page {page_no}]]\n{page_text}")
-        metadatas.append({
-            "source": uf.original_name or "Unknown",
-            "session_id": str(session_id),
-            "user_email": user_email,
-            "file_id": str(uf.id),
-            "page": page_no,
-            "kind": "pdf_page",
-        })
-        # ✅ 재인덱싱/세션 충돌 완화
-        ids.append(f"s{session_id}_file_{uf.id}_p{page_no}")
+        prefix = f"[[Page {page_no}]]\n"
+        chunks = safe_chunks_for_embedding(prefix, page_text, max_tokens=3200, overlap_tokens=200)
+
+        for c_idx, chunked_text in enumerate(chunks, start=1):
+            texts.append(chunked_text)
+            metadatas.append({
+                "source": uf.original_name or "Unknown",
+                "session_id": str(session_id),
+                "user_email": user_email,
+                "file_id": str(uf.id),
+                "page": page_no,
+                "chunk": c_idx,
+                "chunk_total": len(chunks),
+                "kind": "pdf_page",
+            })
+            ids.append(f"s{session_id}_file_{uf.id}_p{page_no}_c{c_idx}")
 
     if not texts:
         print("[Index] No page text extracted; skip indexing.")
@@ -515,17 +521,23 @@ def index_staged_paper_pages_to_vector_db(
         if not page_text:
             continue
 
-        texts.append(f"[[Page {page_no}]]\n{page_text}")
-        metadatas.append({
-            "source": sp.source or "Unknown",
-            "title": sp.title,
-            "session_id": str(session_id),
-            "user_email": user_email,
-            "staged_paper_id": str(sp.id),
-            "page": page_no,
-            "kind": "staged_pdf_page",
-        })
-        ids.append(f"staged_{sp.id}_p{page_no}")
+        prefix = f"[[Page {page_no}]]\n"
+        chunks = safe_chunks_for_embedding(prefix, page_text, max_tokens=3200, overlap_tokens=200)
+
+        for c_idx, chunked_text in enumerate(chunks, start=1):
+            texts.append(chunked_text)
+            metadatas.append({
+                "source": sp.source or "Unknown",
+                "title": sp.title,
+                "session_id": str(session_id),
+                "user_email": user_email,
+                "staged_paper_id": str(sp.id),
+                "page": page_no,
+                "chunk": c_idx,
+                "chunk_total": len(chunks),
+                "kind": "staged_pdf_page",
+            })
+            ids.append(f"staged_{sp.id}_p{page_no}_c{c_idx}")
 
     if not texts:
         return 0
