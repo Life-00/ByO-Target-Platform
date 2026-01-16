@@ -28,10 +28,8 @@ class Paper(BaseModel):
     retrieval_reason: RetrievalReason
     query_id: str
 
-    # ✅ 핵심: PDF 파일 저장 경로 (DB에 기록할 경로의 근원)
     pdf_storage_path: Optional[str] = None
 
-    # (옵션) UI/디버깅용으로 많이 씀 — 없어도 extra=allow라 문제 없지만 명시하면 편함
     url: Optional[str] = None
     source: Optional[str] = None
 

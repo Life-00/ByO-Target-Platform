@@ -6,7 +6,7 @@ from pathlib import Path
 import json
 
 from app.schemas.query import UserQuery
-from backend.app.agents.retriever.retriever_types import ExpandedQuery
+from app.agents.retriever.retriever_types import ExpandedQuery
 from app.core.llm import llm_client, DEFAULT_LLM_MODEL
 from app.agents.retriever.prompt_loader import load_prompt
 
@@ -18,6 +18,7 @@ class QueryExpander:
         self.use_llm = use_llm
 
     def expand(self, uq: UserQuery) -> List[ExpandedQuery]:
+        
         if self.use_llm:
             try:
                 out = self._llm_expand(uq)
