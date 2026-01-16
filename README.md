@@ -122,16 +122,161 @@ Retriever → Extractor → Synthesizer로 이어지는
 
 ---
 
+## 📁 레포지토리 구조 (상세)
+
+## 📁 레포지토리 구조 (상세)
+
 ```bash
-## 📁 레포지토리 구조
 ByO-Target-Platform
-├── frontend/        # 프론트엔드
-├── backend/         # 백엔드 API & Agent
-├── ai/              # AI 모델 및 실험 코드
-├── .github/         # GitHub Actions & Workflow
+├── .dockerignore
+├── .gitignore
+├── .python-version
 ├── docker-compose.yml
-└── README.md
+├── env_example
+├── CONTRIBUTING.md
+├── README.md
+├── README_Docker.md
+├── .github/
+│   └── workflows/
+│       └── deploy.yml
+├── backend/
+│   ├── .python-version
+│   ├── Dockerfile
+│   ├── README.md
+│   ├── main.py
+│   ├── pyproject.toml
+│   ├── uv.lock
+│   ├── alembic.ini
+│   ├── requirementst.txt
+│   ├── alembic/
+│   │   ├── README
+│   │   ├── env.py
+│   │   ├── script.py.mako
+│   │   └── versions/
+│   │       └── 0fc328c2ff1b_init_schema.py
+│   └── app/
+│       ├── __init__.py
+│       ├── agents/
+│       │   ├── extractor/
+│       │   │   ├── agent.py
+│       │   │   ├── parser.py
+│       │   │   ├── prompts.py
+│       │   │   ├── claim_filter.py
+│       │   │   ├── claim_type_classifier.py
+│       │   │   ├── outcome_claim_builder.py
+│       │   │   └── outcome_sentence_selector.py
+│       │   ├── retriever/
+│       │   │   ├── agent.py
+│       │   │   ├── pipeline.py
+│       │   │   ├── prompts.py
+│       │   │   ├── state.py
+│       │   │   ├── types.py
+│       │   │   ├── query_expander.py
+│       │   │   ├── semantic_ranker.py
+│       │   │   ├── paper_filter.py
+│       │   │   ├── pubmed_fetcher.py
+│       │   │   ├── arxiv_fetcher.py
+│       │   │   └── pdf_fetcher.py
+│       │   ├── synthesizer/
+│       │   │   ├── __init__.py
+│       │   │   ├── agent.py
+│       │   │   ├── assembler.py
+│       │   │   ├── guards.py
+│       │   │   ├── prompts.py
+│       │   │   ├── renderer.py
+│       │   │   ├── renderer_markdown.py
+│       │   │   ├── renderer_pdf.py
+│       │   │   └── test_dossier_shape.py
+│       │   └── tests/
+│       │       ├── conftest.py
+│       │       ├── test_retriever_integration.py
+│       │       └── test_retriever_preview.py
+│       ├── api/
+│       │   ├── __init__.py
+│       │   ├── deps.py
+│       │   └── v1/
+│       │       ├── __init__.py
+│       │       ├── auth.py
+│       │       ├── chat.py
+│       │       ├── extract.py
+│       │       ├── files.py
+│       │       ├── report.py
+│       │       ├── research.py
+│       │       ├── selections.py
+│       │       └── sessions.py
+│       ├── core/
+│       │   ├── __init__.py
+│       │   ├── config.py
+│       │   ├── database.py
+│       │   ├── embeddings.py
+│       │   ├── llm.py
+│       │   └── tokenizer.py
+│       ├── models/
+│       │   ├── __init__.py
+│       │   ├── base.py
+│       │   ├── chat.py
+│       │   ├── pipeline.py
+│       │   └── user.py
+│       ├── schemas/
+│       │   ├── __init__.py
+│       │   ├── auth.py
+│       │   ├── chat.py
+│       │   ├── dossier.py
+│       │   ├── extract.py
+│       │   ├── files.py
+│       │   ├── knowledge.py
+│       │   ├── messages.py
+│       │   ├── query.py
+│       │   ├── report.py
+│       │   ├── research.py
+│       │   ├── retrieval.py
+│       │   ├── selections.py
+│       │   ├── sessions.py
+│       │   ├── users.py
+│       │   └── vector_hit.py
+│       └── service/
+│           ├── __init__.py
+│           ├── auth_service.py
+│           ├── rag_service.py
+│           ├── solar_service.py
+│           ├── chromadb/
+│           │   ├── __init__.py
+│           │   └── ingest_chunk.py
+│           └── pubmed/
+│               ├── client.py
+│               ├── parser.py
+│               ├── service.py
+│               └── (non-ascii filename).txt
+└── frontend/
+    ├── .gitignore
+    ├── Dockerfile
+    ├── README.md
+    ├── eslint.config.js
+    ├── index.html
+    ├── package.json
+    ├── package-lock.json
+    ├── vite.config.js
+    ├── public/
+    │   └── TVA.png
+    └── src/
+        ├── main.jsx
+        ├── App.jsx
+        ├── App.css
+        ├── index.css
+        ├── api/
+        │   └── index.js
+        └── components/
+            ├── Auth/
+            │   ├── AuthContainer.jsx
+            │   └── AuthContainer.css
+            └── Dashboard/
+                ├── Dashboard.jsx
+                ├── Dashboard.css
+                ├── PdfAnalyzer.jsx
+                └── PdfAnalyzer.css
+
 ```
+
 
 ---
 
