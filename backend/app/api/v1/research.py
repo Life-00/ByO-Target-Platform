@@ -1,4 +1,5 @@
 # app/api/v1/research.py
+
 import json
 import os
 import traceback
@@ -19,10 +20,8 @@ from app.models.chat import Message
 from app.agents.retriever.arxiv_fetcher import ArxivFetcher
 from app.core.llm import call_llm
 
-# config.py에 get_uploads_dir()가 있으면 그걸 쓰고,
-# 없으면 /app/uploads로 fallback
 try:
-    from app.core.config import get_uploads_dir  # type: ignore
+    from app.core.config import get_uploads_dir
 except Exception:
     def get_uploads_dir() -> Path:
         d = Path("/app/uploads").resolve()
@@ -34,15 +33,9 @@ router = APIRouter(prefix="/sessions", tags=["research"])
 
 
 # ------------------------------------------------------------
-# Path utils: "에이전트가 저장한 파일"을 서버가 검증하고 DB에 기록
+# Path utils
 # ------------------------------------------------------------
 def _resolve_pdf_path(raw_path: Optional[str], uploads_dir: Path) -> Optional[Path]:
-    """
-    fetcher가 반환한 pdf_storage_path를 절대경로로 보정.
-    - 절대경로면 그대로 resolve
-    - 상대경로면 /app 기준이 아니라 "uploads_dir의 부모(/app)" 기준으로 보정
-      (상대경로가 data/uploads/... 같은 형태여도 /app/data/uploads로 맞춰짐)
-    """
     if not raw_path:
         return None
 
@@ -50,8 +43,6 @@ def _resolve_pdf_path(raw_path: Optional[str], uploads_dir: Path) -> Optional[Pa
     if p.is_absolute():
         return p.resolve()
 
-    # 상대경로는 프로젝트 루트(/app) 기준으로 보정
-    # uploads_dir = /app/uploads -> parent = /app
     base = uploads_dir.parent
     return (base / p).resolve()
 
@@ -64,7 +55,7 @@ def _file_exists(p: Optional[Path]) -> bool:
 
 
 # ------------------------------------------------------------
-# Query analysis -> arXiv용 영문 키워드
+# Query analysis
 # ------------------------------------------------------------
 def analyze_user_input(user_text: str) -> dict:
     prompt = f"""
@@ -94,8 +85,6 @@ Output JSON ONLY:
 
 # ------------------------------------------------------------
 # POST /sessions/{session_id}/research
-# - is_confirmed=False: proposal
-# - is_confirmed=True : fetch + download + DB save
 # ------------------------------------------------------------
 @router.post("/{session_id}/research")
 def research(
@@ -105,19 +94,16 @@ def research(
     db: Session = Depends(get_db),
     background_tasks: BackgroundTasks = BackgroundTasks(),
 ):
-    # 사용자가 확인 전 단계면 user 메시지 저장
     if not payload.is_confirmed:
         db.add(Message(session_id=session_id, user_email=email, role="user", content=payload.query))
         db.commit()
 
     def event_generator():
         try:
-            uploads_dir = get_uploads_dir()  # ✅ 단일 저장소 (예: /app/uploads)
-            fetcher = ArxivFetcher(download_dir=str(uploads_dir))  # ✅ 에이전트가 여기에 저장
+            uploads_dir = get_uploads_dir()
+            fetcher = ArxivFetcher(download_dir=str(uploads_dir))
 
-            # ----------------------------
             # CASE 1: proposal
-            # ----------------------------
             if not payload.is_confirmed:
                 yield json.dumps(
                     {"type": "log", "content": "🤔 arXiv 검색을 위한 키워드를 분석 중입니다..."},
@@ -141,9 +127,7 @@ def research(
                 ) + "\n"
                 return
 
-            # ----------------------------
             # CASE 2: run search + download + DB save
-            # ----------------------------
             confirmed = payload.confirmed_intent or {}
             search_query = confirmed.get("intent", payload.query)
             max_results = confirmed.get("filters", {}).get("max_results", 5)
@@ -153,7 +137,6 @@ def research(
                 ensure_ascii=False,
             ) + "\n"
 
-            # ✅ 에이전트가 다운로드까지 수행하고 papers에 pdf_storage_path를 넣어줌
             papers = fetcher.search_and_download(
                 search_query,
                 max_results=max_results,
@@ -175,9 +158,11 @@ def research(
             for p in papers:
                 p_data = p.model_dump() if hasattr(p, "model_dump") else p.__dict__
 
-                # ✅ 프론트가 path를 주는 구조 자체가 없음 (payload 무시/비사용)
+                # ✅ [수정됨] Fetcher가 반환할 수 있는 다양한 키 이름을 모두 확인
                 raw_pdf = (
                     p_data.get("pdf_storage_path")
+                    or p_data.get("file_path")      # 추가됨
+                    or p_data.get("download_path")  # 추가됨
                     or p_data.get("pdf_path")
                     or p_data.get("pdf_local_path")
                 )
@@ -185,7 +170,6 @@ def research(
                 resolved_pdf = _resolve_pdf_path(raw_pdf, uploads_dir)
                 exists = _file_exists(resolved_pdf)
 
-                # 존재 검증 로그 (진짜 원인 찾기 좋게)
                 print(f"[Research] pdf raw={raw_pdf} resolved={resolved_pdf} exists={exists}")
 
                 if exists:
@@ -204,7 +188,6 @@ def research(
                     year=p_data.get("year", None),
                     url=p_data.get("url"),
                     abstract=abstract_text,
-                    # ✅ 핵심: 서버가 "파일 존재" 검증한 경우에만 DB에 path 기록
                     pdf_storage_path=str(resolved_pdf) if exists else None,
                 )
                 db.add(staged)
@@ -212,9 +195,9 @@ def research(
 
             db.commit()
 
-            # ✅ 업로드처럼: PDF가 확보된 StagedPaper는 백그라운드에서 자동 Extract 실행
+            # PDF가 확보된 StagedPaper는 백그라운드에서 자동 Extract 실행
             try:
-                from app.api.v1.extract import auto_extract_staged_paper  # lazy import (순환 방지)
+                from app.api.v1.extract import auto_extract_staged_paper
                 for sp in saved:
                     if sp.pdf_storage_path:
                         background_tasks.add_task(
@@ -228,7 +211,6 @@ def research(
 
             print(f"[Research] DB 적재 완료. (총: {len(saved)}, PDF확보: {pdf_ok})")
 
-            # UI용 메시지
             lines = []
             for i, sp in enumerate(saved):
                 status = "✅(PDF)" if sp.pdf_storage_path else "❌(No PDF)"
@@ -253,10 +235,6 @@ def research(
     return StreamingResponse(event_generator(), media_type="application/x-ndjson", background=background_tasks)
 
 
-# ------------------------------------------------------------
-# GET /sessions/{session_id}/research/candidates
-# 프론트의 library 탭이 호출하는 후보 목록
-# ------------------------------------------------------------
 @router.get("/{session_id}/research/candidates")
 def list_candidates(
     session_id: UUID,
@@ -289,10 +267,6 @@ def list_candidates(
     return out
 
 
-# ------------------------------------------------------------
-# ✅ 프론트가 쓰는 경로: /sessions/{id}/papers/{paper_id}/download
-# - DB에서 pdf_storage_path를 찾아 FileResponse로 서빙
-# ------------------------------------------------------------
 @router.get("/{session_id}/papers/{paper_id}/download")
 def download_paper_pdf(
     session_id: UUID,
@@ -323,10 +297,6 @@ def download_paper_pdf(
     )
 
 
-# ------------------------------------------------------------
-# ✅ alias: 예전 경로를 쓰던 코드가 있으면 깨지지 않게 유지
-# /sessions/{id}/research/papers/{paper_id}/download
-# ------------------------------------------------------------
 @router.get("/{session_id}/research/papers/{paper_id}/download")
 def download_paper_pdf_alias(
     session_id: UUID,
@@ -335,6 +305,7 @@ def download_paper_pdf_alias(
     db: Session = Depends(get_db),
 ):
     return download_paper_pdf(session_id=session_id, paper_id=paper_id, email=email, db=db)
+
 
 @router.get("/{session_id}/papers/{paper_id}/summary")
 def get_staged_paper_summary(
@@ -355,5 +326,4 @@ def get_staged_paper_summary(
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
 
-    # summary 컬럼이 없거나 아직 생성 전이면 빈 문자열로 돌려도 됨
     return {"paper_id": str(paper.id), "summary": paper.summary or ""}
