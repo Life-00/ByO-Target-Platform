@@ -1,4 +1,3 @@
-# app/agents/retriever/arxiv_fetcher.py
 import os
 import time
 import requests
@@ -15,8 +14,6 @@ class ArxivFetcher:
     def __init__(self, download_dir: str | None = None):
         """
         arXiv 전용 페처를 초기화합니다.
-        - download_dir가 None이면 get_uploads_dir()로 통일
-        - 상대경로가 들어와도 절대경로로 보정해서 저장 (CWD 의존 제거)
         """
         if not download_dir:
             p = get_uploads_dir()
@@ -31,10 +28,6 @@ class ArxivFetcher:
         print(f"[arXiv-Fetch] download_dir={self.download_dir}")
 
     def search_and_download(self, query: str, max_results: int = 5, query_id: str = "arxiv_default") -> List[Paper]:
-        """
-        arXiv API를 통해 검색하고, 상세 정보(저자, 연도) 파싱 및 PDF를 확보합니다.
-        Pydantic 유효성 에러 방지를 위해 retrieval_reason과 query_id를 포함합니다.
-        """
         params = {
             "search_query": f"all:{query}",
             "start": 0,
@@ -85,11 +78,13 @@ class ArxivFetcher:
 
                 print(f"[arXiv-Fetch] [{idx+1}/{total_found}] 처리 중: {title[:45]}...")
 
+                # ✅ 파일 다운로드 (변수명: pdf_path)
                 pdf_path = self.download_pdf(pdf_url, arxiv_id)
 
                 sentences = [s.strip() for s in summary.split(".") if len(s.strip()) > 10]
                 abs_sentences = [AbstractSentence(sentence_id=f"arxiv_{arxiv_id}_{i}", text=s) for i, s in enumerate(sentences)]
 
+                # ✅ Paper 객체 생성 (스키마에 맞춰 필드 전달)
                 paper = Paper(
                     pmid=arxiv_id,
                     title=title,
@@ -97,7 +92,13 @@ class ArxivFetcher:
                     year=year,
                     journal="arXiv",
                     abstract_sentences=abs_sentences,
-                    pdf_storage_path=pdf_path,
+                    
+                    # 1. 여기서 경로를 넣어줍니다. (pdf_path 변수 사용)
+                    pdf_storage_path=pdf_path, 
+                    
+                    # 2. fulltext_sentences 초기화 (빈 리스트로 두어 에러 방지)
+                    fulltext_sentences=[],
+
                     url=f"https://arxiv.org/abs/{arxiv_id}",
                     source="arxiv",
                     retrieval_reason="arxiv_search",
@@ -118,7 +119,9 @@ class ArxivFetcher:
             print(f"   ⚠️ [arXiv] PDF 링크가 존재하지 않음 (ID: {arxiv_id})")
             return None
 
-        save_path = os.path.join(self.download_dir, f"{arxiv_id}.pdf")
+        # .pdf 확장자 보장
+        filename = f"{arxiv_id}.pdf"
+        save_path = os.path.join(self.download_dir, filename)
 
         if os.path.exists(save_path):
             print(f"   ✅ [arXiv] 이미 로컬에 적재됨: {save_path}")
@@ -126,7 +129,7 @@ class ArxivFetcher:
 
         try:
             print(f"   📥 [arXiv] 실물 PDF 적재 시작: {pdf_url}")
-            time.sleep(1.0)
+            time.sleep(1.0) # Rate limit 예방
 
             resp = requests.get(pdf_url, timeout=30)
             if resp.status_code == 200:
