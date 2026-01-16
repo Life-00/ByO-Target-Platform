@@ -124,8 +124,6 @@ Retriever → Extractor → Synthesizer로 이어지는
 
 ## 📁 레포지토리 구조 (상세)
 
-## 📁 레포지토리 구조 (상세)
-
 ```bash
 ByO-Target-Platform
 ├── .dockerignore
