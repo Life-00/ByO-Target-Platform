@@ -1,0 +1,52 @@
+/* PdfAnalyzer.css */
+
+.pdf-analysis-page {
+  height: 100%;
+  width: 100%;
+  padding: 16px;
+  background: #f6f7fb;
+}
+
+.pdf-card {
+  height: 100%;
+  width: 100%;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 16px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.pdf-viewer-wrap {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
+.pdf-viewer-wrap .rpv-core__viewer {
+  background: transparent;
+}
+
+.pdf-viewer-wrap .rpv-core__inner-page {
+  background: #ffffff;
+}
+
+.pdf-viewer-wrap .rpv-core__page-layer {
+  padding: 10px 0;
+}
+
+.pdf-viewer-wrap ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.pdf-viewer-wrap ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 999px;
+}
+
+.pdf-viewer-wrap ::-webkit-scrollbar-track {
+  background: transparent;
+}

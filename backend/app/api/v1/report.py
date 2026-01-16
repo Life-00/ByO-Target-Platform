@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.api.deps import get_current_user_email
 from app.models.chat import Message
+from app.models.pipeline import Report  # pipeline.py에 정의된 Report 모델 사용
 from app.schemas.vector_hit import VectorHit, Citation, PaperMeta
 
 # Agent & Service
@@ -49,15 +50,30 @@ def analyze_report_intent(user_text: str) -> dict:
             "agent_type": "synthesizer"
         }
 
+# 🚀 [추가됨] 리포트 목록 조회 API
+@router.get("/{session_id}/reports")
+def list_reports(
+    session_id: UUID,
+    email: str = Depends(get_current_user_email),
+    db: Session = Depends(get_db)
+):
+    """해당 세션에서 생성된 모든 리포트 목록을 반환합니다."""
+    reports = db.query(Report).filter(
+        Report.session_id == session_id,
+        Report.user_email == email
+    ).order_by(Report.created_at.desc()).all()
+    return reports
+
 @router.post("/{session_id}/report")
 def generate_report(
     session_id: UUID,
-    payload: dict, # {"prompt": "...", "is_confirmed": bool}
+    payload: dict, # {"prompt": "...", "is_confirmed": bool, "selected_ids": [...]}
     email: str = Depends(get_current_user_email),
     db: Session = Depends(get_db)
 ):
     is_confirmed = payload.get("is_confirmed", False)
     user_prompt = payload.get("prompt", "최종 보고서 작성해줘.")
+    selected_ids = payload.get("selected_ids", [])
 
     # 사용자 요청 메시지 저장 (최초 요청 시만)
     if not is_confirmed:
@@ -66,9 +82,7 @@ def generate_report(
 
     def event_generator():
         try:
-            # ====================================================
-            # 🛑 CASE 1: 분석 및 제안 (Proposal)
-            # ====================================================
+            # CASE 1: 분석 및 제안
             if not is_confirmed:
                 yield json.dumps({"type": "log", "content": "🤔 보고서 구성안을 기획하는 중입니다..."}, ensure_ascii=False) + "\n"
                 analysis = analyze_report_intent(user_prompt)
@@ -83,18 +97,14 @@ def generate_report(
                 yield json.dumps({"type": "proposal", "content": proposal_msg, "analysis": analysis}, ensure_ascii=False) + "\n"
                 return
 
-            # ====================================================
-            # 🚀 CASE 2: 실제 보고서 생성 (Execution)
-            # ====================================================
+            # CASE 2: 실제 보고서 생성
             yield json.dumps({"type": "log", "content": "📂 데이터베이스에서 추출된 근거들을 수집 중입니다..."}, ensure_ascii=False) + "\n"
-            print(f"[{time.strftime('%H:%M:%S')}] [REPORT] Start synthesis for {session_id}")
-
-            # 1. 데이터 로드 (Extractor에 의해 이미 저장된 데이터만 조회)
+            
             vector_db = rag_service.get_vector_db()
             docs = vector_db.get(where={"session_id": str(session_id)})
             
             if not docs or not docs["documents"]:
-                yield json.dumps({"type": "error", "content": "분석할 근거 데이터가 없습니다. 먼저 'Extractor' 에이전트를 통해 지식을 추출해주세요."}, ensure_ascii=False) + "\n"
+                yield json.dumps({"type": "error", "content": "분석할 근거 데이터가 없습니다."}, ensure_ascii=False) + "\n"
                 return
 
             hits: List[VectorHit] = []
@@ -110,26 +120,29 @@ def generate_report(
                     paper=PaperMeta(pmid=meta.get("pmid", "0"), title=meta.get("source", "Unknown"), year=None, url=f"https://pubmed.ncbi.nlm.nih.gov/{meta.get('pmid', '0')}/")
                 ))
 
-            # 2. 대화 문맥 로드
             recent_msgs = db.query(Message).filter(Message.session_id == session_id).order_by(Message.created_at.asc()).all()
             user_context = "\n".join([f"{m.role}: {m.content}" for m in recent_msgs])
 
-            # 3. 에이전트 가동 (오직 hits 기반으로만 작성)
             yield json.dumps({"type": "log", "content": "🧠 지식 간 상관관계를 분석하여 전문 리포트 작성 중..."}, ensure_ascii=False) + "\n"
             dossier = synthesizer_agent.run(user_query=user_prompt, hits=hits, user_context=user_context)
             
             yield json.dumps({"type": "log", "content": "✍️ Dossier 형식으로 최종 렌더링 중..."}, ensure_ascii=False) + "\n"
             report_md = render_dossier(user_context=user_context, skeleton=dossier)
 
-            # 4. 결과 저장
-            db.add(Message(session_id=session_id, user_email=email, role="ai", content=report_md))
+            # 결과 저장 (Report 테이블)
+            new_report = Report(
+                session_id=session_id,
+                user_email=email,
+                user_context=user_prompt,
+                selected_items={"item_ids": selected_ids},
+                final_report=report_md
+            )
+            db.add(new_report)
             db.commit()
 
-            print(f"[{time.strftime('%H:%M:%S')}] [REPORT] Completed for session {session_id}")
-            yield json.dumps({"type": "result", "data": {"content": report_md}}, ensure_ascii=False) + "\n"
+            yield json.dumps({"type": "result", "data": {"content": report_md, "report_id": str(new_report.id)}}, ensure_ascii=False) + "\n"
 
         except Exception as e:
-            print(f"[Report Error] {e}")
             yield json.dumps({"type": "error", "content": f"오류 발생: {str(e)}"}, ensure_ascii=False) + "\n"
 
     return StreamingResponse(

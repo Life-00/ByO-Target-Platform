@@ -1,4 +1,3 @@
-# app/schemas/retrieval.py
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
@@ -6,12 +5,10 @@ from typing import List, Optional, Literal
 
 RetrievalReason = str
 
-# abstract
 class AbstractSentence(BaseModel):
     sentence_id: str
     text: str
 
-# full-text
 class SectionSentence(BaseModel):
     sentence_id: str
     text: str
@@ -25,6 +22,8 @@ class Paper(BaseModel):
     url: Optional[str] = None
     pdf_url: Optional[str] = None
     license: Optional[str] = None
+    
+    pdf_storage_path: Optional[str] = None
 
     has_fulltext: bool = False
     title: str
