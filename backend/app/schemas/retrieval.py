@@ -1,37 +1,46 @@
 # app/schemas/retrieval.py
 from __future__ import annotations
 
-from typing import List, Optional
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field
+from typing import List, Optional, Literal
 
-# 유연하게 처리
 RetrievalReason = str
 
-
+# abstract
 class AbstractSentence(BaseModel):
     sentence_id: str
     text: str
 
+# full-text
+class SectionSentence(BaseModel):
+    sentence_id: str
+    text: str
+    section: Optional[str] = None  # results, methods, discussion, etc.
 
 class Paper(BaseModel):
-    # fetcher/pipeline에서 추가 필드가 와도 버리지 않게(보험)
-    model_config = ConfigDict(extra="allow")
+    source: Literal["pubmed", "europe_pmc", "crossref", "arxiv", "manual"] = "pubmed"
+    source_id: str = ""
+    pmid: Optional[str] = None
+    doi: Optional[str] = None
+    url: Optional[str] = None
+    pdf_url: Optional[str] = None
+    license: Optional[str] = None
 
-    pmid: str
+    has_fulltext: bool = False
     title: str
     year: Optional[int] = None
     journal: Optional[str] = None
     authors: List[str] = Field(default_factory=list)
 
     abstract_sentences: List[AbstractSentence] = Field(default_factory=list)
+    fulltext_sentences: List[SectionSentence] = Field(default_factory=list) # full-text
 
     retrieval_reason: RetrievalReason
     query_id: str
 
-    pdf_storage_path: Optional[str] = None
-
-    url: Optional[str] = None
-    source: Optional[str] = None
+    @property
+    def uid(self) -> str:
+        return self.pmid or self.doi or self.source_id
 
 
 class PaperCorpus(BaseModel):
