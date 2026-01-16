@@ -38,4 +38,10 @@ class OutcomeSentenceSelector:
         except Exception as e:
             print("[OutcomeSentenceSelector] parse failed:", e)
             print("[OutcomeSentenceSelector] raw response:", response)
+
+            # 🔁 fallback: 첫 번째 문장만이라도 outcome 후보로 사용
+            if sentences:
+                print("[OutcomeSentenceSelector] fallback: using first sentence")
+                return [sentences[0].sentence_id]
+
             return []

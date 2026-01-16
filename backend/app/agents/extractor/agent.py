@@ -1,7 +1,7 @@
 # app/agents/extractor/agent.py
 
 from __future__ import annotations
-from typing import List
+from typing import List, Optional
 
 from app.agents.extractor.prompts import claim_extraction_prompt, evidence_extraction_prompt
 from app.agents.extractor.parser import (
@@ -18,7 +18,7 @@ from app.schemas.retrieval import PaperCorpus, Paper
 from app.schemas.knowledge import KnowledgeChunk
 from app.core.llm import call_llm
 
-from app.service.chromadb.ingest_chunk import add_chunks_to_chromadb
+# from app.service.chromadb.ingest_chunk import add_chunks_to_chromadb
 
 class ExtractorAgent:
     """
@@ -49,14 +49,18 @@ class ExtractorAgent:
         self.outcome_claim_builder = ConservativeOutcomeClaimBuilder()
 
     # 논문에서 중요정보 추출, KnowledgeChunk 생성
-    def run(self, corpus: PaperCorpus) -> List[KnowledgeChunk]:
+    def run(self,
+            corpus: PaperCorpus,
+            instruction: Optional[str] = None
+    ) -> List[KnowledgeChunk]:
+
         chunks: List[KnowledgeChunk] = []
 
         for paper in corpus.papers:
             # =========================
             # STEP 1: abstract claim extraction
             # =========================
-            extracted_claims = self._extract_claims(paper)
+            extracted_claims = self._extract_claims(paper, instruction)
 
             outcome_claims = []
 
@@ -68,18 +72,18 @@ class ExtractorAgent:
                         section="abstract",
                     )
 
-                    print(
-                        f"[CLAIM FILTER] decision={filter_result['decision']} | "
-                        f"reason={filter_result.get('reason')} | "
-                        f"claim=\"{claim.claim}\""
-                    )
+                    # print(
+                    #     f"[CLAIM FILTER] decision={filter_result['decision']} | "
+                    #     f"reason={filter_result.get('reason')} | "
+                    #     f"claim=\"{claim.claim}\""
+                    # )
 
                     if filter_result["decision"] == "discard":
                         continue
 
                 # (2) Claim type classification
                 claim_type = self.claim_type_classifier.classify(claim.claim)
-                print(f"[CLAIM TYPE] {claim_type} | claim=\"{claim.claim}\"")
+                # print(f"[CLAIM TYPE] {claim_type} | claim=\"{claim.claim}\"")
 
                 if claim_type != "outcome":
                     continue
@@ -92,6 +96,9 @@ class ExtractorAgent:
             if outcome_claims:
                 for idx, claim in enumerate(outcome_claims):
                     evidence = self._extract_evidence(paper, claim)
+
+                    if claim.confidence is not None and claim.confidence < self.min_confidence:
+                        continue
 
                     chunk = self._assemble_chunk(
                         paper=paper,
@@ -107,9 +114,14 @@ class ExtractorAgent:
             # STEP 3: 2단계-1 fallback
             # abstract에 outcome claim이 없을 때만 실행
             # =========================
-            print("[FALLBACK] No outcome claim in abstract → selecting outcome sentences")
+            # print("[FALLBACK] No outcome claim in abstract → selecting outcome sentences")
 
             if not paper.fulltext_sentences:
+                # paper.fulltext_sentences = paper.abstract_sentences
+                # print(
+                #     f"[Extractor] Skip fallback: no fulltext "
+                #     f"(pmid={paper.pmid}, source_id={paper.source_id})"
+                # )
                 continue
 
             # (3-1) 섹션 필터링
@@ -118,7 +130,7 @@ class ExtractorAgent:
             )
 
             if not candidate_sentences:
-                print("[FALLBACK] No candidate sentences after section filtering")
+                # print("[FALLBACK] No candidate sentences after section filtering")
                 continue
 
             selected_sentence_ids = self.outcome_sentence_selector.select(
@@ -126,7 +138,7 @@ class ExtractorAgent:
             )
 
             if not selected_sentence_ids:
-                print("[FALLBACK] No outcome sentences selected")
+                # print("[FALLBACK] No outcome sentences selected")
                 continue
 
             selected_sentences = [
@@ -134,17 +146,17 @@ class ExtractorAgent:
                 if s.sentence_id in selected_sentence_ids
             ]
 
-            print(
-                "[FALLBACK] Building conservative outcome claim from sentences:",
-                selected_sentence_ids
-            )
+            # print(
+            #     "[FALLBACK] Building conservative outcome claim from sentences:",
+            #     selected_sentence_ids
+            # )
 
             fallback_claim = self.outcome_claim_builder.build(
                 selected_sentences
             )
 
             if not fallback_claim:
-                print("[FALLBACK] Failed to build outcome claim")
+                # print("[FALLBACK] Failed to build outcome claim")
                 continue
 
             # ===== 기존 파이프라인 재사용 =====
@@ -163,13 +175,16 @@ class ExtractorAgent:
                 fallback_claim.claim
             )
 
-            print(f"[FALLBACK CLAIM TYPE] {claim_type}")
+            # print(f"[FALLBACK CLAIM TYPE] {claim_type}")
 
             if claim_type != "outcome":
                 continue
 
             # evidence extraction
             evidence = self._extract_evidence(paper, fallback_claim)
+
+            if fallback_claim.confidence is not None and fallback_claim.confidence < self.min_confidence:
+                continue
 
             chunk = self._assemble_chunk(
                 paper=paper,
@@ -180,24 +195,24 @@ class ExtractorAgent:
 
             chunks.append(chunk)
 
-
+        # return chunks
         return chunks
 
 
-    # ChromaDB에 생성한 KnowledgeChunk 저장
-    def run_and_store(self, corpus: PaperCorpus) -> List[KnowledgeChunk]:
-        """
-        Execute extraction and persist resulting KnowledgeChunks into ChromaDB.
-        """
-        chunks = self.run(corpus)
-
-        if chunks:
-            try:
-                add_chunks_to_chromadb(chunks)
-            except Exception as e:
-                print("[Extractor Agent] Failed to store chunks:", e)
-
-        return chunks
+    # # ChromaDB에 생성한 KnowledgeChunk 저장
+    # def run_and_store(self, corpus: PaperCorpus) -> List[KnowledgeChunk]:
+    #     """
+    #     Execute extraction and persist resulting KnowledgeChunks into ChromaDB.
+    #     """
+    #     chunks = self.run(corpus)
+    #
+    #     if chunks:
+    #         try:
+    #             add_chunks_to_chromadb(chunks)
+    #         except Exception as e:
+    #             print("[Extractor Agent] Failed to store chunks:", e)
+    #
+    #     return chunks
 
     # ---------- Step 1: Claim extraction ----------
     def _filter_fulltext_by_section(self, sentences):
@@ -208,7 +223,11 @@ class ExtractorAgent:
         ]
 
 
-    def _extract_claims(self, paper: Paper) -> List[ExtractedClaim]:
+    def _extract_claims(
+        self,
+        paper: Paper,
+        instruction: Optional[str] = None,
+    ) -> List[ExtractedClaim]:
         """
         LLM returns a SINGLE structured claim object.
         We wrap it into a list for uniform downstream handling.
@@ -226,7 +245,7 @@ class ExtractorAgent:
         if not sentence_payload:
             return []
 
-        prompt = claim_extraction_prompt(sentence_payload)
+        prompt = claim_extraction_prompt(sentence_payload, instruction)
         response = call_llm(prompt)
 
         try:
@@ -240,9 +259,9 @@ class ExtractorAgent:
     # ---------- Phase 2: Evidence Extraction ----------
 
     def _extract_evidence(
-            self,
-            paper: Paper,
-            claim: ExtractedClaim,
+        self,
+        paper: Paper,
+        claim: ExtractedClaim,
     ) -> List[dict]:
         """
         Section-agnostic Evidence Extractor
