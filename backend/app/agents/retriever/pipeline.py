@@ -6,26 +6,39 @@ from app.schemas.query import UserQuery
 from app.schemas.retrieval import PaperCorpus
 
 from app.agents.retriever.query_expander import QueryExpander
-from app.agents.retriever.pubmed_fetcher import PubMedFetcher
+# from app.agents.retriever.pubmed_fetcher import PubMedFetcher
+from app.agents.retriever.epmc_biorxiv_fetcher import EuropePMCBioRxivFetcher  # ✅ 추가
 from app.agents.retriever.semantic_ranker import SemanticRanker
 from app.agents.retriever.paper_filter import PaperFilter
 
 
+# 기존
+# from app.agents.retriever.pubmed_fetcher import PubMedFetcher
+
+from app.agents.retriever.pubmed_fetcher import PubMedFetcher
+from app.agents.retriever.epmc_biorxiv_fetcher import EuropePMCBioRxivFetcher  # ✅ 추가
+
+
 class RetrieverPipeline:
     def __init__(
-            self,
-            use_llm_expand: bool = True,
-            use_llm_filter: bool = True,
-            default_retmax: int = 300,
-            semantic_top_n: int = 200,
-            llm_keep_eval_n: int = 80,
-            use_knee_cutoff: bool = True,
-            knee_min_k: int = 5,
-            knee_max_k: int | None = None,
+        self,
+        use_llm_expand: bool = True,
+        use_llm_filter: bool = True,
+        default_retmax: int = 300,
+        semantic_top_n: int = 200,
+        llm_keep_eval_n: int = 80,
+        use_knee_cutoff: bool = True,
+        knee_min_k: int = 5,
+        knee_max_k: int | None = None,
+        source: str = "pmc",  # ✅ 추가: "pmc" | "europepmc+biorxiv"
     ):
         self.expander = QueryExpander(use_llm=use_llm_expand)
-        # PMC 우선 검색을 위해 업데이트된 PubMedFetcher 사용
-        self.fetcher = PubMedFetcher(default_retmax=default_retmax)
+
+        if source == "europepmc+biorxiv":
+            self.fetcher = EuropePMCBioRxivFetcher(default_retmax=default_retmax)
+        else:
+            self.fetcher = PubMedFetcher(default_retmax=default_retmax)
+
         self.ranker = SemanticRanker(
             use_knee_cutoff=use_knee_cutoff,
             knee_min_k=knee_min_k,
@@ -35,6 +48,7 @@ class RetrieverPipeline:
 
         self.use_llm_filter = use_llm_filter
         self.semantic_top_n = semantic_top_n
+
 
     def run_stream(self, uq: UserQuery):
         """

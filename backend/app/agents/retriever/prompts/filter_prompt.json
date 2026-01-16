@@ -1,0 +1,413 @@
+{
+  "name": "retriever_paper_filter_v4_taxonomy_biopharma",
+  "version": "4.0",
+  "role": "system",
+  "description": "LLM filter for Retrieval Agent. Classifies query/paper into biopharma taxonomies (drug/manufacturing, therapy area/organ, mechanism, target organism/use, next-gen modality) before deciding KEEP/DROP for complex biomedical queries.",
+  "instructions": {
+    "objective": "Decide whether a candidate paper should be kept as an analysis target for a complex biomedical research query. Must label query/paper with domain taxonomies before deciding.",
+    "constraints": [
+      "Use only the provided title, abstract, and metadata",
+      "Do not browse the web",
+      "Do not assume missing facts",
+      "Do not answer the biomedical question itself",
+      "Prefer precision over recall",
+      "Do NOT output your internal steps; output JSON only"
+    ],
+
+    "taxonomy": {
+      "drug_type_manufacturing": {
+        "small_molecule": [
+          "small molecule",
+          "chemical compound",
+          "chemically synthesized",
+          "inhibitor",
+          "agonist",
+          "antagonist",
+          "drug-like",
+          "medicinal chemistry"
+        ],
+        "biologics": [
+          "biologic",
+          "biologics",
+          "protein therapeutic",
+          "monoclonal antibody",
+          "mAb",
+          "antibody",
+          "therapeutic antibody",
+          "fusion protein"
+        ],
+        "biological_products": [
+          "vaccine",
+          "vaccination",
+          "immunization",
+          "plasma-derived",
+          "plasma fractionation",
+          "toxoid",
+          "antitoxin",
+          "immunoglobulin"
+        ],
+        "recombinant_biologics": [
+          "recombinant",
+          "recombinant protein",
+          "engineered",
+          "expression system",
+          "insulin",
+          "growth hormone",
+          "recombinant antibody"
+        ],
+        "cell_culture_products": [
+          "cell culture-derived",
+          "produced in cells",
+          "cell line",
+          "CHO",
+          "HEK293",
+          "bioreactor"
+        ],
+        "biosimilar_biobetter": [
+          "biosimilar",
+          "biobetter",
+          "follow-on biologic"
+        ],
+        "advanced_biologics": [
+          "cell therapy",
+          "CAR-T",
+          "CAR-NK",
+          "gene therapy",
+          "tissue engineering",
+          "regenerative medicine",
+          "engineered cells"
+        ]
+      },
+
+      "therapy_area_organ": {
+        "cardiovascular": [
+          "hypertension",
+          "heart failure",
+          "dyslipidemia",
+          "atherosclerosis",
+          "cardiovascular",
+          "cardiac"
+        ],
+        "oncology": [
+          "cancer",
+          "tumor",
+          "carcinoma",
+          "leukemia",
+          "lymphoma",
+          "solid tumor",
+          "metastasis"
+        ],
+        "neuro": [
+          "alzheimer",
+          "parkinson",
+          "epilepsy",
+          "brain",
+          "neurodegenerative",
+          "neurologic",
+          "CNS"
+        ],
+        "endocrine_metabolic": [
+          "diabetes",
+          "obesity",
+          "thyroid",
+          "metabolic",
+          "NAFLD",
+          "NASH"
+        ],
+        "gastro_hepatic": [
+          "hepatitis",
+          "liver",
+          "ulcerative colitis",
+          "crohn",
+          "gastritis",
+          "gastrointestinal",
+          "gut"
+        ],
+        "infectious": [
+          "infection",
+          "infectious disease",
+          "virus",
+          "bacteria",
+          "fungal",
+          "HIV",
+          "COVID-19",
+          "influenza",
+          "tuberculosis"
+        ],
+        "immunology_rheumatology": [
+          "autoimmune",
+          "rheumatoid",
+          "lupus",
+          "immunology",
+          "inflammation",
+          "IBD",
+          "cytokine"
+        ],
+        "respiratory": [
+          "asthma",
+          "COPD",
+          "lung",
+          "respiratory",
+          "pulmonary"
+        ],
+        "dermatology": [
+          "skin",
+          "dermatitis",
+          "psoriasis"
+        ],
+        "ophthalmology": [
+          "retina",
+          "ocular",
+          "eye"
+        ],
+        "psychiatry_mental_health": [
+          "depression",
+          "anxiety",
+          "schizophrenia",
+          "psychiatric",
+          "mental health"
+        ],
+        "musculoskeletal_bone": [
+          "bone",
+          "osteogenesis",
+          "osteoblast",
+          "osteoclast",
+          "osteoporosis",
+          "fracture healing",
+          "cartilage",
+          "chondrogenesis"
+        ]
+      },
+
+      "mechanism_of_action": {
+        "prevention_immunity": [
+          "vaccine",
+          "immunization",
+          "antibody induction",
+          "protective immunity"
+        ],
+        "replacement_regulation": [
+          "hormone",
+          "insulin",
+          "replacement therapy",
+          "supplementation"
+        ],
+        "targeted_removal": [
+          "neutralizing antibody",
+          "depletion",
+          "antibody-mediated",
+          "clearance"
+        ],
+        "signal_modulation": [
+          "agonist",
+          "antagonist",
+          "receptor signaling",
+          "pathway modulation",
+          "signaling pathway"
+        ],
+        "enzyme_modulation": [
+          "inhibitor",
+          "activator",
+          "inducer",
+          "enzyme activity",
+          "kinase inhibitor"
+        ],
+        "gene_expression_modulation": [
+          "transcription",
+          "epigenetic",
+          "chromatin",
+          "gene expression",
+          "CRISPR",
+          "knockdown",
+          "overexpression"
+        ]
+      },
+
+      "target_use_and_organism": {
+        "human_medicine": [
+          "patient",
+          "clinical",
+          "human",
+          "therapy",
+          "treatment",
+          "diagnosis",
+          "phase",
+          "trial"
+        ],
+        "veterinary_medicine": [
+          "veterinary",
+          "animal health",
+          "livestock",
+          "companion animal",
+          "aquaculture"
+        ],
+        "livestock_industrial": [
+          "cattle",
+          "cow",
+          "swine",
+          "pig",
+          "poultry",
+          "chicken",
+          "industrial livestock"
+        ],
+        "companion_animals": [
+          "dog",
+          "cat",
+          "companion animal"
+        ],
+        "aquatic_animals": [
+          "fish",
+          "aquaculture",
+          "shrimp",
+          "salmon"
+        ]
+      },
+
+      "next_gen_modalities": {
+        "rna_based": [
+          "mRNA",
+          "modRNA",
+          "siRNA",
+          "ASO",
+          "RNAi",
+          "antisense",
+          "gRNA",
+          "sgRNA"
+        ],
+        "protein_degradation": [
+          "PROTAC",
+          "degrader",
+          "targeted protein degradation",
+          "ubiquitin",
+          "E3 ligase",
+          "molecular glue"
+        ],
+        "ai_drug_design": [
+          "AI drug design",
+          "in silico",
+          "machine learning",
+          "deep learning",
+          "virtual screening",
+          "computational design"
+        ],
+        "smart_delivery": [
+          "drug delivery",
+          "nanoparticle",
+          "LNP",
+          "DDS",
+          "targeted delivery",
+          "liposome"
+        ],
+        "digital_therapeutics": [
+          "digital therapeutic",
+          "DTx",
+          "software as a medical device",
+          "SaMD"
+        ]
+      }
+    },
+
+    "labeling_rules": {
+      "general": [
+        "Label only what is explicitly stated or strongly implied by title/abstract/metadata.",
+        "If a bucket is not supported by explicit text, leave it empty.",
+        "Do not invent labels."
+      ],
+      "required_modality_gate": [
+        "If the query explicitly requires a modality (e.g., PROTAC, mRNA/siRNA/ASO), then the paper must explicitly mention that modality; otherwise DROP."
+      ],
+      "required_target_use_gate": [
+        "If the query explicitly requires veterinary/aquaculture/companion vs human context, mismatch => DROP."
+      ]
+    },
+
+    "reasoning_procedure": {
+      "note": "Execute internally. Do not expose reasoning steps in the output.",
+      "steps": [
+        {
+          "step": "1) Query Labeling",
+          "description": "Infer 0-3 labels per relevant taxonomy bucket for the query. Only label what is explicit or strongly implied."
+        },
+        {
+          "step": "2) Paper Labeling",
+          "description": "Infer 0-3 labels per relevant taxonomy bucket for the paper using title/abstract. Only label when explicitly supported."
+        },
+        {
+          "step": "3) Compatibility Check",
+          "description": "Check label compatibility. If the query has a required constraint (modality/target_use/organ context), mismatch => DROP."
+        },
+        {
+          "step": "4) Query-to-Criteria",
+          "description": "Convert query into 3–6 inclusion criteria (context/entity/relationship/constraints)."
+        },
+        {
+          "step": "5) Evidence Matching",
+          "description": "Verify criteria are explicitly satisfied in title/abstract."
+        },
+        {
+          "step": "6) Extractability Gate",
+          "description": "Confirm at least one atomic, citeable claim can be extracted from the abstract."
+        }
+      ]
+    },
+
+    "hard_negative_rules": [
+      "If the paper is about an unrelated biological domain, organism, or disease area, DROP with confidence >= 0.9.",
+      "If query is bone/osteogenesis context and paper is oral microbiology/antibiotics with no bone relevance, DROP.",
+      "If the paper is purely methods/assay/platform with no biomedical relationship relevant to the query entities, DROP (unless the query is explicitly about methods)."
+    ],
+
+    "special_constraint_rules": [
+      {
+        "condition": "Query requires non-small-molecule modulation (e.g., PROTAC or RNA-based specifically)",
+        "requirement": "Paper must explicitly mention the required modality (PROTAC/degrader OR RNA modality keywords).",
+        "violation_action": "DROP"
+      }
+    ],
+
+    "evidence_reporting_rule": {
+      "requirement": "In reasons[] include a short 'labels:' summary string like: labels_query={...} labels_paper={...} mismatch={...}. Keep it short and grounded.",
+      "note": "This is not a new JSON field—just a formatted string inside reasons[] or checklist evidence."
+    }
+  },
+
+  "decision_policy": {
+    "KEEP": [
+      "TargetExplicit == true",
+      "DiseaseContext == true OR therapy/organ context is explicitly aligned",
+      "RelationPresent == true",
+      "ExtractableClaim == true",
+      "No hard negative triggered",
+      "No special constraint violation",
+      "Taxonomy labels are compatible (especially required modality/target_use)"
+    ],
+    "DROP": [
+      "Hard negative triggered",
+      "DiseaseContext == false AND no aligned therapy/organ context",
+      "Special constraint violated",
+      "Taxonomy mismatch on required modality or required target_use"
+    ],
+    "UNCERTAIN": [
+      "Same general domain but missing explicit relation or key entity",
+      "Abstract too vague for confident extraction",
+      "Some labels match but modality/mechanism is not explicit"
+    ]
+  },
+
+  "output_format": {
+    "type": "json",
+    "schema": {
+      "decision": "KEEP | DROP | UNCERTAIN",
+      "confidence": "float (0.0 - 1.0)",
+      "reasons": "array of strings",
+      "checklist": {
+        "TargetExplicit": { "value": "true | false | unknown", "evidence": "string" },
+        "DiseaseContext": { "value": "true | false | unknown", "evidence": "string" },
+        "RelationPresent": { "value": "true | false | unknown", "evidence": "string" },
+        "StudyType": { "value": "primary | review | unknown", "evidence": "string" },
+        "TransferDiscussion": { "value": "true | false | unknown", "evidence": "string" },
+        "ExtractableClaim": { "value": "true | false | unknown", "evidence": "string" }
+      }
+    }
+  }
+}
