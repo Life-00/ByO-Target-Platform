@@ -1,0 +1,111 @@
+version: '3.9'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: tva-postgres
+    environment:
+      POSTGRES_USER: ${DB_USER:-tva}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-tva_password}
+      POSTGRES_DB: ${DB_NAME:-tva_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-tva}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - tva-network
+
+  # ChromaDB Vector Database
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: tva-chromadb
+    environment:
+      CHROMA_DB_IMPL: duckdb+parquet
+      PERSIST_DIRECTORY: /chroma_data
+      ANONYMIZED_TELEMETRY: false
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma_data:/chroma_data
+    healthcheck:
+      test: ["CMD", "bash", "-c", "curl -f http://localhost:8000/api/v1/heartbeat || exit 0"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    networks:
+      - tva-network
+
+  # Redis Cache (선택사항 - 비활성화)
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: tva-redis
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis_data:/data
+  #   healthcheck:
+  #     test: ["CMD", "redis-cli", "ping"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+  #   networks:
+  #     - tva-network
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tva-backend
+    environment:
+      # Database
+      DATABASE_URL: postgresql+asyncpg://${DB_USER:-tva}:${DB_PASSWORD:-tva_password}@postgres:5432/${DB_NAME:-tva_db}
+      
+      # ChromaDB
+      CHROMADB_HOST: chromadb
+      CHROMADB_PORT: 8000
+      CHROMA_DB_PATH: /chroma_data
+      
+      # APIs
+      UPSTAGE_API_KEY: ${UPSTAGE_API_KEY}
+      
+      # LLM Settings
+      LLM_TEMPERATURE: 0.3
+      LLM_MAX_TOKENS: 2000
+      LLM_TOP_P: 0.9
+      
+      # Environment
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DEBUG: ${DEBUG:-true}
+    ports:
+      - "8001:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      chromadb:
+        condition: service_healthy
+    volumes:
+      - ./app:/app/app
+      - ./tests:/app/tests
+      - ./uploads:/app/uploads
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - tva-network
+
+volumes:
+  postgres_data:
+    driver: local
+  chroma_data:
+    driver: local
+
+networks:
+  tva-network:
+    driver: bridge
+
