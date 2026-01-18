@@ -1,6 +1,6 @@
 """
 Search Agent Schemas
-Input and output data models for arXiv paper search agent
+Input and output data models for Europe PMC (bioRxiv/medRxiv) search agent
 """
 
 from typing import Optional, List, Dict, Any
@@ -23,7 +23,9 @@ class PaperInfo(BaseModel):
     title: str = Field(..., description="Paper title")
     authors: List[str] = Field(default_factory=list, description="List of authors")
     abstract: str = Field(..., description="Paper abstract")
-    arxiv_id: str = Field(..., description="arXiv ID")
+    preprint_id: str = Field(..., description="Europe PMC / bioRxiv identifier")
+    doi: str = Field(..., description="DOI for the preprint")
+    source: str = Field(..., description="Source repository (bioRxiv or medRxiv)")
     pdf_url: str = Field(..., description="PDF download URL")
     published_date: str = Field(..., description="Publication date")
     relevance_score: float = Field(default=0.0, description="Relevance score (0-1)")

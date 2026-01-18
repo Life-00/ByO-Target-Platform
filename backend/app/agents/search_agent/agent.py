@@ -2,8 +2,8 @@
 Search Agent Implementation (Orchestrator)
 
 This agent orchestrates the paper search workflow:
-1. Converting user query + analysis_goal into arXiv search query (using LLM)
-2. Searching arXiv for relevant papers (delegated to arxiv_search.py)
+1. Converting user query + analysis_goal into Europe PMC search query (using LLM)
+2. Searching Europe PMC (bioRxiv/medRxiv) for relevant papers
 3. Filtering papers by relevance (using LLM)
 4. Downloading PDFs (delegated to pdf_download.py)
 """
@@ -22,7 +22,7 @@ from app.agents.search_agent.prompt import (
     REQUESTED_COUNT_EXTRACTION_PROMPT,
     DEFAULT_MAX_RESULTS,
 )
-from app.agents.search_agent.arxiv_search import search_arxiv
+from app.agents.search_agent.europe_pmc_search import search_biorxiv
 from app.agents.search_agent.pdf_download import download_pdfs
 from app.services.llm_service import get_llm_service
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 class SearchAgent(BaseAgent):
     """
     Search Agent (Orchestrator)
-    Coordinates arXiv paper search, relevance filtering, and PDF download
+    Coordinates Europe PMC (bioRxiv/medRxiv) search, relevance filtering, and PDF download
     """
 
     def __init__(self, db: AsyncSession = None):
@@ -62,27 +62,38 @@ class SearchAgent(BaseAgent):
             actual_max_results = await self._extract_requested_count(request.content)
             logger.info(f"[SearchAgent] Requested count from LLM: {actual_max_results}")
 
-            # Step 0.5: Extract already downloaded arxiv IDs from selected_documents
-            existing_arxiv_ids = set()
+            # Step 0.5: Extract already downloaded preprint identifiers from selected_documents
+            existing_preprint_ids = set()
             if request.selected_documents:
                 for doc in request.selected_documents:
-                    # Extract arxiv ID from description field (e.g., "arXiv 2212.00109")
-                    description = doc.get('description', '')
-                    if 'arXiv' in description:
-                        arxiv_id = description.split('arXiv')[1].strip().split()[0].split('-')[0]
-                        existing_arxiv_ids.add(arxiv_id)
-                logger.info(f"[SearchAgent] Found {len(existing_arxiv_ids)} existing papers to skip: {existing_arxiv_ids}")
+                    # Prefer explicit identifiers if provided
+                    candidate = (
+                        str(doc.get("external_id") or doc.get("doi") or doc.get("preprint_id") or doc.get("id") or "").strip()
+                    )
+                    if candidate:
+                        existing_preprint_ids.add(candidate)
+                        continue
 
-            # Step 1: Generate arXiv search query from user input
+                    # Fallback: Extract identifier from description text (e.g., "bioRxiv DOI 10.1101/...")
+                    description = doc.get('description', '')
+                    if 'DOI' in description:
+                        try:
+                            doi_part = description.split('DOI')[1].strip().split()[0]
+                            existing_preprint_ids.add(doi_part)
+                        except Exception:
+                            continue
+                logger.info(f"[SearchAgent] Found {len(existing_preprint_ids)} existing papers to skip: {existing_preprint_ids}")
+
+            # Step 1: Generate Europe PMC search query from user input
             search_query = await self._generate_search_query(
                 request.content, 
                 request.analysis_goal
             )
             logger.info(f"[SearchAgent] Generated search query: {search_query}")
 
-            # Step 2: Search arXiv (delegated to arxiv_search module)
-            papers = await search_arxiv(search_query, actual_max_results * 4)
-            logger.info(f"[SearchAgent] Found {len(papers)} papers from arXiv")
+            # Step 2: Search Europe PMC (bioRxiv/medRxiv)
+            papers = await search_biorxiv(search_query, actual_max_results * 4)
+            logger.info(f"[SearchAgent] Found {len(papers)} papers from Europe PMC")
 
             if not papers:
                 return SearchAgentResponse(
@@ -104,7 +115,7 @@ class SearchAgent(BaseAgent):
                 request.analysis_goal,
                 request.min_relevance_score,
                 actual_max_results,
-                existing_arxiv_ids  # Pass existing IDs to skip
+                existing_preprint_ids  # Pass existing IDs to skip
             )
             logger.info(f"[SearchAgent] Filtered to {len(filtered_papers)} relevant papers (excluding duplicates)")
 
@@ -131,7 +142,7 @@ class SearchAgent(BaseAgent):
                     "timestamp": datetime.now().isoformat(),
                     "min_relevance": request.min_relevance_score,
                     "requested_count": actual_max_results,
-                    "excluded_duplicates": len(existing_arxiv_ids)
+                    "excluded_duplicates": len(existing_preprint_ids)
                 }
             )
 
@@ -207,22 +218,23 @@ class SearchAgent(BaseAgent):
         analysis_goal: Optional[str],
         min_score: float,
         max_results: int,
-        existing_arxiv_ids: set = None
+        existing_preprint_ids: set = None
     ) -> List[PaperInfo]:
         """
         Step 3: Filter papers by relevance using LLM to compare abstracts
-        Also skip papers that are already downloaded (in existing_arxiv_ids)
+        Also skip papers that are already downloaded (in existing_preprint_ids)
         """
-        if existing_arxiv_ids is None:
-            existing_arxiv_ids = set()
+        if existing_preprint_ids is None:
+            existing_preprint_ids = set()
             
         filtered = []
 
         for paper in papers:
             try:
                 # Skip if already downloaded
-                if paper["arxiv_id"] in existing_arxiv_ids:
-                    logger.info(f"[SearchAgent] Skipping duplicate: {paper['arxiv_id']}")
+                paper_identifier = paper.get("preprint_id") or paper.get("doi") or paper.get("arxiv_id")
+                if paper_identifier and paper_identifier in existing_preprint_ids:
+                    logger.info(f"[SearchAgent] Skipping duplicate: {paper_identifier}")
                     continue
 
                 # Evaluate relevance using LLM
@@ -251,7 +263,9 @@ class SearchAgent(BaseAgent):
                         title=paper["title"],
                         authors=paper["authors"],
                         abstract=paper["abstract"],
-                        arxiv_id=paper["arxiv_id"],
+                        preprint_id=paper_identifier or "",
+                        doi=paper.get("doi") or "",
+                        source=paper.get("source") or "biorxiv",
                         pdf_url=paper["pdf_url"],
                         published_date=paper["published_date"],
                         relevance_score=relevance_score

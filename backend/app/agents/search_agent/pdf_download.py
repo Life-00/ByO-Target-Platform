@@ -47,7 +47,8 @@ async def download_pdfs(
         try:
             # Generate safe filename
             safe_title = "".join(c for c in paper.title if c.isalnum() or c in (' ', '-', '_'))[:100]
-            filename = f"{paper.arxiv_id}_{safe_title}.pdf"
+            identifier = paper.doi or paper.preprint_id
+            filename = f"{identifier}_{safe_title}.pdf"
             filepath = session_dir / filename
 
             logger.info(f"[PDFDownload] Downloading: {paper.pdf_url}")
@@ -71,8 +72,9 @@ async def download_pdfs(
                         file_path=str(filepath),
                         file_size=file_size,
                         mime_type="application/pdf",
-                        description=f"arXiv {paper.arxiv_id} - Relevance: {paper.relevance_score:.0%}",
+                        description=f"{paper.source} DOI {paper.doi} - Relevance: {paper.relevance_score:.0%}",
                         summary=paper.abstract[:1000],  # Store abstract as initial summary
+                        external_id=paper.doi,
                         is_indexed=False,  # Not yet embedded
                         created_at=datetime.now(),
                     )
@@ -90,7 +92,7 @@ async def download_pdfs(
             logger.info(f"[PDFDownload] Saved to: {filepath}")
 
         except Exception as e:
-            logger.error(f"[PDFDownload] Download failed for {paper.arxiv_id}: {str(e)}")
+            logger.error(f"[PDFDownload] Download failed for {paper.preprint_id}: {str(e)}")
             continue
 
     # Commit all document records

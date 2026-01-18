@@ -2,7 +2,7 @@
 Search Agent API Routes
 
 Endpoint:
-- POST /api/v1/agents/search - Search arXiv papers and download PDFs
+- POST /api/v1/agents/search - Search bioRxiv/medRxiv preprints (Europe PMC) and download PDFs
 """
 
 import logging
@@ -26,7 +26,7 @@ router = APIRouter(prefix="/search", tags=["agents"])
     "",
     response_model=SearchAgentResponse,
     status_code=status.HTTP_200_OK,
-    summary="Search arXiv papers and download PDFs",
+    summary="Search bioRxiv/medRxiv preprints and download PDFs",
     responses={
         200: {"description": "Papers searched and downloaded successfully"},
         401: {"description": "Unauthorized"},
@@ -39,11 +39,11 @@ async def search_papers(
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> SearchAgentResponse:
     """
-    Search arXiv for relevant papers and download PDFs.
+    Search Europe PMC (bioRxiv/medRxiv) for relevant papers and download PDFs.
 
     This endpoint:
-    1. Converts user query + analysis_goal into arXiv search query (using LLM)
-    2. Searches arXiv API for papers
+    1. Converts user query + analysis_goal into a Europe PMC search query (using LLM)
+    2. Searches bioRxiv/medRxiv via Europe PMC API
     3. Filters papers by relevance (comparing abstracts with user intent using LLM)
     4. Downloads relevant PDFs to /uploads/{session_id}/ directory
     5. Registers downloaded papers in database
