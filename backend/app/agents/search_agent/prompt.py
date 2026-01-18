@@ -1,15 +1,15 @@
 """
 Search Agent Prompts
-Prompt templates for arXiv paper search and relevance filtering
+Prompt templates for Europe PMC (bioRxiv/medRxiv) search and relevance filtering
 """
 
-# Prompt for converting user query + analysis_goal into arXiv search query
-SEARCH_QUERY_GENERATION_PROMPT = """You are an expert at converting research questions into effective arXiv search queries.
+# Prompt for converting user query + analysis_goal into Europe PMC search query
+SEARCH_QUERY_GENERATION_PROMPT = """You are an expert at converting research questions into effective search queries for bioRxiv/medRxiv content via Europe PMC.
 
 User's Question: {content}
 Analysis Goal: {analysis_goal}
 
-Task: Generate a concise, effective arXiv search query (2-10 keywords) that will find relevant academic papers.
+Task: Generate a concise, effective search query (2-10 keywords) using biomedical/CS terms that works well on Europe PMC for preprints (bioRxiv/medRxiv).
 
 Guidelines:
 - Focus on technical terms and key concepts
@@ -23,7 +23,7 @@ Search Query:"""
 
 
 # Prompt for evaluating paper relevance
-RELEVANCE_EVALUATION_PROMPT = """You are an expert at evaluating research paper relevance.
+RELEVANCE_EVALUATION_PROMPT = """You are an expert at evaluating research paper relevance for bioRxiv/medRxiv preprints.
 
 User's Research Interest:
 - Question: {content}
@@ -47,10 +47,10 @@ REQUESTED_COUNT_EXTRACTION_PROMPT = """Analyze the user's question and extract h
 User's Question: {content}
 
 Examples:
-- "파킨슨병 관련 논문 하나만 찾아줘" → 1
-- "transformer 논문 3개 찾아줘" → 3
-- "딥러닝 논문 찾아줘" → 5 (default when not specified)
-- "몇 개 논문 보여줘" → 5 (default for ambiguous requests)
+- "새로운 효소 설계 논문 1편만 찾아줘" -> 1
+- "transformer 논문 3개 찾아줘" -> 3
+- "최근 LLM 논문 찾아줘" -> 5 (default when not specified)
+- "많이 찾아줘" -> 5 (default for ambiguous requests)
 
 Respond with ONLY a JSON object:
 {{"requested_count": <number>}}
@@ -61,4 +61,3 @@ The number must be between 1 and 20. If not specified or unclear, use 5."""
 # Configuration
 DEFAULT_MAX_RESULTS = 5
 DEFAULT_MIN_RELEVANCE = 0.7
-ARXIV_API_BASE_URL = "http://export.arxiv.org/api/query"
