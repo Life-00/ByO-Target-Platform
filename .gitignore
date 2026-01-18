@@ -111,3 +111,7 @@ chroma_data/
 # PDF Files (except samples)
 *.pdf
 !backend/sample.pdf
+
+# Keep alembic.ini
+!alembic.ini
+!backend/alembic.ini
