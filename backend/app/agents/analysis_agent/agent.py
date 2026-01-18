@@ -32,6 +32,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from app.config import settings
 
+# ReAct Reasoning Tool용
+from app.tools.reasoning.react_quality_gate import (
+    react_quality_gate,
+    EvidenceItem,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -101,33 +107,101 @@ class AnalysisAgent(BaseAgent):
 
             logger.info(f"[AnalysisAgent] Analyzing document IDs: {document_ids}")
 
-            # Step 2: Retrieve relevant chunks from ChromaDB
-            relevant_chunks = await self._retrieve_relevant_chunks(
-                query=request.content,
-                document_ids=document_ids,
-                top_k=request.top_k
-            )
-            
-            if not relevant_chunks:
-                return AnalysisAgentResponse(
-                    success=True,
-                    answer="선택된 문서에서 관련 내용을 찾을 수 없습니다. 다른 문서를 선택하거나 질문을 더 구체적으로 작성해주세요.",
-                    citations=[],
-                    documents_analyzed=len(document_ids),
-                    chunks_retrieved=0
+            # Step 2: Retrieve relevant chunks from ChromaDB + ReAct loop
+            MAX_REACT_ATTEMPTS = 5  # 무한 루프 방지
+            current_query = request.content
+            current_top_k = request.top_k
+            relevant_chunks: List[Dict[str, Any]] = []
+            last_gate_result = None
+
+            for attempt in range(MAX_REACT_ATTEMPTS):
+                logger.info(f"[AnalysisAgent][ReAct] Attempt {attempt + 1}")
+
+                relevant_chunks = await self._retrieve_relevant_chunks(
+                    query=current_query,
+                    document_ids=document_ids,
+                    top_k=current_top_k
                 )
 
-            logger.info(f"[AnalysisAgent] Retrieved {len(relevant_chunks)} relevant chunks")
+                if not relevant_chunks:
+                    logger.info("[AnalysisAgent][ReAct] No chunks retrieved")
+                    break
+
+                evidence_items = [
+                    EvidenceItem(
+                        content=chunk["text"],
+                        metadata={
+                            "document_id": chunk.get("document_id"),
+                            "document_title": chunk.get("document_title"),
+                            "page_number": chunk.get("page_number"),
+                            "section_type": chunk.get("section_type"),
+                        }
+                    )
+                    for chunk in relevant_chunks
+                ]
+
+                gate_result = await react_quality_gate(
+                    task_goal=request.analysis_goal or "RAG-based document analysis",
+                    query=request.content,
+                    evidence_items=evidence_items,
+                    llm_service=self.llm_service,
+                )
+
+                last_gate_result = gate_result
+
+                if gate_result.accept:
+                    logger.info("[AnalysisAgent][ReAct] Gate accepted")
+                    break
+
+                logger.info(
+                    f"[AnalysisAgent][ReAct] Gate rejected: "
+                    f"{gate_result.failure_reasons}, next={gate_result.next_action}"
+                )
+
+                # 🔹 Act 단계 (상태 변화 필수)
+                if gate_result.next_action == "increase_top_k":
+                    current_top_k += gate_result.action_params.get("top_k_delta", 5)
+
+                elif gate_result.next_action == "rewrite_query":
+                    current_query = request.content  # 기본 유지 (향후 확장 가능)
+
+                elif gate_result.next_action == "stop":
+                    break
+
+                else:
+                    break
+
+            # 🔒 ReAct 최종 실패 → 답변 생성 차단
+            if not relevant_chunks or not last_gate_result or not last_gate_result.accept:
+                return AnalysisAgentResponse(
+                    success=True,
+                    answer=(
+                        "선택된 문서만으로는 현재 질문에 답하기에 "
+                        "근거가 충분하지 않습니다.\n\n"
+                        f"사유: {', '.join(last_gate_result.failure_reasons) if last_gate_result else '근거 부족'}"
+                    ),
+                    citations=[],
+                    documents_analyzed=len(document_ids),
+                    chunks_retrieved=len(relevant_chunks),
+                    metadata={
+                        "react_attempts": attempt + 1,
+                        "react_confidence": last_gate_result.confidence if last_gate_result else None,
+                        "react_rationale": last_gate_result.rationale if last_gate_result else None,
+                    }
+                )
+
 
             # Step 3: Enrich chunks with document metadata
             enriched_chunks = await self._enrich_chunks_with_metadata(relevant_chunks)
 
-            # Step 4: Generate answer using LLM
+
+            # Step 4: Generate answer using LLM (gate 통과 시만)
             answer, tokens_used = await self._generate_answer(
                 question=request.content,
                 analysis_goal=request.analysis_goal,
                 chunks=enriched_chunks
             )
+
 
             # Step 5: Extract citations
             citations = self._extract_citations(enriched_chunks)
