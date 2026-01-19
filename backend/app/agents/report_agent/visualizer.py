@@ -198,17 +198,34 @@ class Visualizer:
                 col=2,
             )
 
-            # 레이아웃 설정
+            # 레이아웃 설정 (논문 figure 스타일)
             fig.update_layout(
-                title_text="연구 타당성 평가",
-                title_font_size=18,
+                title={
+                    "text": "<b>Figure 2. 연구 타당성 평가</b>",
+                    "font": {"size": 20, "family": "Arial, sans-serif", "color": "#2c3e50"},
+                    "x": 0.5,
+                    "xanchor": "center"
+                },
                 showlegend=False,
                 height=500,
                 hovermode="x unified",
                 template="plotly_white",
+                margin=dict(l=80, r=80, t=120, b=80),
+                font=dict(family="Arial, sans-serif", size=12, color="#2c3e50"),
             )
 
-            fig.update_yaxes(range=[0, 100], row=1, col=2)
+            fig.update_yaxes(
+                range=[0, 100],
+                title_font=dict(size=14),
+                tickfont=dict(size=12),
+                row=1, col=2
+            )
+            fig.update_xaxes(
+                title_font=dict(size=14),
+                tickfont=dict(size=11),
+                tickangle=-15,
+                row=1, col=2
+            )
 
             html_string = fig.to_html(include_plotlyjs="cdn")
             logger.info(f"[Visualizer] Feasibility chart created: {len(html_string)} chars")
@@ -327,73 +344,128 @@ class Visualizer:
             if not papers:
                 return "<p>논문 데이터가 없습니다.</p>"
 
-            # 연도별 논문 수
+            # 연도별 논문 수 (Unknown 제외, AI Generated 문서는 연도 null)
             year_counts = {}
             for paper in papers:
-                year = paper.year or "Unknown"
-                year_counts[year] = year_counts.get(year, 0) + 1
+                # AI Generated 보고서는 연도를 포함하지 않음
+                if paper.year and paper.year != "Unknown" and isinstance(paper.year, int):
+                    year_counts[paper.year] = year_counts.get(paper.year, 0) + 1
 
             # Plotly 그래프
             fig = make_subplots(
                 rows=1,
                 cols=2,
-                subplot_titles=("연도별 논문 수", "저자별 논문 수 (Top 10)"),
+                subplot_titles=("연도별 논문 분포", "주요 저자 분포 (Top 10)"),
+                horizontal_spacing=0.15,
                 specs=[[{"type": "bar"}, {"type": "bar"}]],
             )
 
             # 1. 연도별 (왼쪽)
-            years = sorted([y for y in year_counts.keys() if y != "Unknown"])
-            counts = [year_counts[y] for y in years]
+            if year_counts:
+                years = sorted(year_counts.keys())
+                counts = [year_counts[y] for y in years]
 
-            fig.add_trace(
-                go.Bar(
-                    x=years,
-                    y=counts,
-                    marker={"color": "#4ECDC4"},
-                    name="논문 수",
-                    hovertemplate="<b>%{x}</b><br>%{y}개<extra></extra>",
-                ),
-                row=1,
-                col=1,
-            )
+                fig.add_trace(
+                    go.Bar(
+                        x=years,
+                        y=counts,
+                        marker={"color": "#4ECDC4", "line": {"width": 1, "color": "#3AAFA9"}},
+                        name="논문 수",
+                        text=counts,
+                        textposition="outside",
+                        textfont={"size": 14, "family": "Arial, sans-serif"},
+                        hovertemplate="<b>연도: %{x}</b><br>논문 수: %{y}개<extra></extra>",
+                    ),
+                    row=1,
+                    col=1,
+                )
+            else:
+                # 데이터 없음 표시
+                fig.add_annotation(
+                    text="연도 정보가 없습니다",
+                    xref="x", yref="y",
+                    x=0.5, y=0.5,
+                    showarrow=False,
+                    row=1, col=1
+                )
 
             # 2. 저자별 (오른쪽)
             author_counts = {}
             for paper in papers:
-                if paper.authors:
+                if paper.authors and paper.authors != "AI Generated":
                     # 첫 번째 저자만 추출
                     first_author = paper.authors.split(",")[0].strip()
-                    author_counts[first_author] = author_counts.get(first_author, 0) + 1
+                    if first_author and first_author != "Unknown":
+                        author_counts[first_author] = author_counts.get(first_author, 0) + 1
 
             if author_counts:
                 top_authors = sorted(author_counts.items(), key=lambda x: x[1], reverse=True)[:10]
-                authors = [a[0] for a in top_authors]
+                authors = [a[0][:20] + "..." if len(a[0]) > 20 else a[0] for a in top_authors]  # 이름 길이 제한
                 author_cnts = [a[1] for a in top_authors]
 
                 fig.add_trace(
                     go.Bar(
                         x=authors,
                         y=author_cnts,
-                        marker={"color": "#FF6B6B"},
+                        marker={"color": "#FF6B6B", "line": {"width": 1, "color": "#E85D5D"}},
                         name="논문 수",
-                        hovertemplate="<b>%{x}</b><br>%{y}개<extra></extra>",
+                        text=author_cnts,
+                        textposition="outside",
+                        textfont={"size": 14, "family": "Arial, sans-serif"},
+                        hovertemplate="<b>%{x}</b><br>논문 수: %{y}개<extra></extra>",
                     ),
                     row=1,
                     col=2,
                 )
+            else:
+                fig.add_annotation(
+                    text="저자 정보가 없습니다",
+                    xref="x2", yref="y2",
+                    x=0.5, y=0.5,
+                    showarrow=False,
+                    row=1, col=2
+                )
 
-            # 레이아웃
+            # 레이아웃 (논문 figure 스타일)
             fig.update_layout(
-                title_text="논문 분포 분석",
+                title={
+                    "text": "<b>Figure 3. 논문 분포 분석</b>",
+                    "font": {"size": 20, "family": "Arial, sans-serif", "color": "#2c3e50"},
+                    "x": 0.5,
+                    "xanchor": "center"
+                },
                 showlegend=False,
-                height=400,
+                height=500,
                 template="plotly_white",
+                margin=dict(l=80, r=80, t=120, b=80),
+                font=dict(family="Arial, sans-serif", size=12, color="#2c3e50"),
             )
 
-            fig.update_xaxes(title_text="연도", row=1, col=1)
-            fig.update_xaxes(title_text="저자", row=1, col=2)
-            fig.update_yaxes(title_text="논문 수", row=1, col=1)
-            fig.update_yaxes(title_text="논문 수", row=1, col=2)
+            fig.update_xaxes(
+                title_text="<b>연도</b>",
+                title_font=dict(size=14),
+                tickfont=dict(size=12),
+                row=1, col=1
+            )
+            fig.update_xaxes(
+                title_text="<b>저자</b>",
+                title_font=dict(size=14),
+                tickfont=dict(size=10),
+                tickangle=-45,
+                row=1, col=2
+            )
+            fig.update_yaxes(
+                title_text="<b>논문 수</b>",
+                title_font=dict(size=14),
+                tickfont=dict(size=12),
+                row=1, col=1
+            )
+            fig.update_yaxes(
+                title_text="<b>논문 수</b>",
+                title_font=dict(size=14),
+                tickfont=dict(size=12),
+                row=1, col=2
+            )
 
             html_string = fig.to_html(include_plotlyjs="cdn")
             logger.info(f"[Visualizer] Paper distribution chart created: {len(html_string)} chars")
@@ -404,52 +476,144 @@ class Visualizer:
             raise
 
     # ============================================================================
+    # Comparison Chart (from LLM data)
+    # ============================================================================
+
+    @staticmethod
+    async def create_comparison_chart(comparison_data: Dict[str, Any]) -> str:
+        """
+        비교 분석 차트 생성 (LLM 데이터 기반)
+
+        Args:
+            comparison_data: {
+                "labels": ["A", "B"],
+                "values": [85, 92],
+                "metric": "소거능 (%)"
+            }
+
+        Returns:
+            HTML string
+        """
+        try:
+            labels = comparison_data.get("labels", [])
+            values = comparison_data.get("values", [])
+            metric = comparison_data.get("metric", "값")
+
+            if not labels or not values or len(labels) != len(values):
+                logger.warning(f"[Visualizer] Invalid comparison data")
+                return "<p>비교 데이터가 부족합니다</p>"
+
+            logger.info(f"[Visualizer] Creating comparison chart: {labels}")
+
+            fig = go.Figure(data=[
+                go.Bar(
+                    x=labels,
+                    y=values,
+                    text=values,
+                    textposition='outside',
+                    textfont=dict(size=14, family="Arial, sans-serif"),
+                    marker=dict(
+                        color=values,
+                        colorscale='Viridis',
+                        showscale=False,
+                        line=dict(width=1, color="#34495e")
+                    ),
+                    hovertemplate="<b>%{x}</b><br>" + metric + ": %{y}<extra></extra>"
+                )
+            ])
+
+            fig.update_layout(
+                title={
+                    "text": f"<b>Figure 4. 비교 분석 - {metric}</b>",
+                    "font": {"size": 20, "family": "Arial, sans-serif", "color": "#2c3e50"},
+                    "x": 0.5,
+                    "xanchor": "center"
+                },
+                xaxis_title="<b>항목</b>",
+                yaxis_title=f"<b>{metric}</b>",
+                template="plotly_white",
+                height=450,
+                margin=dict(l=80, r=80, t=120, b=80),
+                font=dict(family="Arial, sans-serif", size=12, color="#2c3e50"),
+                xaxis=dict(title_font=dict(size=14), tickfont=dict(size=12)),
+                yaxis=dict(title_font=dict(size=14), tickfont=dict(size=12))
+            )
+
+            html_string = fig.to_html(
+                include_plotlyjs='cdn',
+                div_id='comparison_chart'
+            )
+
+            return html_string
+
+        except Exception as e:
+            logger.error(f"[Visualizer] Error creating comparison chart: {str(e)}")
+            raise
+
+    # ============================================================================
     # All Visualizations Bundle
     # ============================================================================
 
     @staticmethod
-    async def create_all_visualizations(report: ResearchReport) -> Dict[str, str]:
+    async def create_all_visualizations(
+        report: ResearchReport, 
+        viz_data: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, str]:
         """
         모든 시각화 생성
 
         Args:
             report: ResearchReport 객체
+            viz_data: LLM에서 추출한 시각화 데이터 (Optional)
 
         Returns:
             {
                 "evidence_network": HTML,
                 "feasibility_chart": HTML,
-                "paper_distribution": HTML
+                "paper_distribution": HTML,
+                "comparison_chart": HTML (if data available)
             }
         """
         try:
             logger.info(f"[Visualizer] Creating all visualizations for: {report.title}")
+            logger.info(f"[Visualizer] Visualization data provided: {bool(viz_data)}")
 
             visualizations = {}
 
             # 1. 증거 네트워크
             visualizations["evidence_network"] = await Visualizer.create_evidence_network(report)
 
-            # 2. 타당성 점수 차트
-            breakdown = {
-                "선행연구": min(100, report.validation.feasibility_score + 10),
-                "방법론": report.validation.feasibility_score,
-                "실행가능성": max(0, report.validation.feasibility_score - 15),
-                "학술기여도": report.validation.feasibility_score,
-            }
+            # 2. 타당성 점수 차트 (viz_data 사용 또는 기본값)
+            if viz_data and "feasibility_breakdown" in viz_data:
+                breakdown = viz_data["feasibility_breakdown"]
+                logger.info(f"[Visualizer] Using LLM-provided feasibility breakdown: {breakdown}")
+            else:
+                # 기본값 사용
+                breakdown = {
+                    "선행연구": min(100, report.validation.feasibility_score + 10),
+                    "방법론": report.validation.feasibility_score,
+                    "실행가능성": max(0, report.validation.feasibility_score - 15),
+                    "학술기여도": report.validation.feasibility_score,
+                }
+                logger.warning(f"[Visualizer] No feasibility breakdown in viz_data, using defaults")
+                
             visualizations["feasibility_chart"] = await Visualizer.create_feasibility_chart(
                 report.validation,
                 breakdown
             )
 
-            # 3. 논문 분포
-            visualizations["paper_distribution"] = await Visualizer.create_paper_distribution_chart(
-                report.related_papers
-            )
+            # 3. 비교 차트 (viz_data에 comparison_data가 있는 경우)
+            if viz_data and "comparison_data" in viz_data:
+                comparison_data = viz_data["comparison_data"]
+                if "labels" in comparison_data and "values" in comparison_data:
+                    visualizations["comparison_chart"] = await Visualizer.create_comparison_chart(
+                        comparison_data
+                    )
+                    logger.info(f"[Visualizer] Created comparison chart")
 
-            logger.info(f"[Visualizer] All visualizations created successfully")
+            logger.info(f"[Visualizer] All visualizations created successfully: {list(visualizations.keys())}")
             return visualizations
 
         except Exception as e:
-            logger.error(f"[Visualizer] Error creating all visualizations: {str(e)}")
+            logger.error(f"[Visualizer] Error creating all visualizations: {str(e)}", exc_info=True)
             raise

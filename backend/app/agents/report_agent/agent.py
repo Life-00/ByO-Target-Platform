@@ -5,6 +5,7 @@ Generates comprehensive research feasibility reports with Intent-based execution
 
 import logging
 import re
+import json
 from enum import Enum
 from typing import Optional, List, Dict, Any
 from datetime import datetime
@@ -69,28 +70,29 @@ class ReportAgent(BaseAgent):
 
     async def execute(self, request: ReportAgentRequest) -> ReportAgentResponse:
         """
-        Execute report agent with automatic intent detection and routing
+        Execute comprehensive report generation with all features
+
+        항상 완전한 보고서를 생성합니다:
+        - 8개 섹션 포함 완전한 보고서
+        - 자동 시각화 포함
+        - 근거 분석 및 타당성 평가
+        - Markdown & PDF 생성
 
         Args:
             request: ReportAgentRequest with research topic and optional parameters
 
         Returns:
-            ReportAgentResponse with results based on detected intent
+            ReportAgentResponse with complete report including visualizations
         """
         try:
-            # Step 1: Classify user intent
-            intent = await self._classify_intent(request)
-            logger.info(f"[ReportAgent] Detected intent: {intent.value}")
-
-            # Step 2: Route to intent-specific handler
-            if intent == ExecutionIntent.FULL_REPORT:
-                return await self._execute_full_report(request)
-            elif intent == ExecutionIntent.DATA_PROCESSING:
-                return await self._execute_data_processing(request)
-            elif intent == ExecutionIntent.VISUALIZATION:
-                return await self._execute_visualization(request)
-            else:  # QUICK_ANALYSIS
-                return await self._execute_quick_analysis(request)
+            # 항상 완전한 보고서 생성 (시각화 자동 포함)
+            logger.info(f"[ReportAgent] Generating comprehensive report with all features")
+            
+            # 시각화와 네트워크 그래프를 자동으로 포함
+            request.include_visualizations = True
+            request.include_network_graph = True
+            
+            return await self._execute_full_report(request)
 
         except Exception as e:
             logger.error(f"[ReportAgent] Error: {str(e)}", exc_info=True)
@@ -244,20 +246,40 @@ class ReportAgent(BaseAgent):
             pdf = await ReportBuilder.build_pdf(final_report)
             logger.info(f"[ReportAgent] Report formats generated (Markdown + PDF)")
 
-            # Step 10: Generate visualizations (if requested)
+            # Step 10: Parse visualization data from report content
+            viz_data = self._extract_visualization_data(report_content)
+            logger.info(f"[ReportAgent] Extracted visualization data: {bool(viz_data)}")
+
+            # Step 11: Generate visualizations using extracted data
             visualizations = {}
-            if request.include_visualizations:
-                visualizations = await Visualizer.create_all_visualizations(final_report)
-                logger.info(f"[ReportAgent] Visualizations generated")
+            try:
+                if viz_data:
+                    visualizations = await Visualizer.create_all_visualizations(final_report, viz_data)
+                    logger.info(f"[ReportAgent] Visualizations generated: {len(visualizations)} charts")
+                else:
+                    logger.warning(f"[ReportAgent] No visualization data found, using defaults")
+                    visualizations = await Visualizer.create_all_visualizations(final_report, None)
+            except Exception as viz_error:
+                logger.warning(f"[ReportAgent] Visualization generation failed: {str(viz_error)}")
+                visualizations = {}
+
+            # Markdown에 시각화 섹션 추가
+            if visualizations:
+                viz_section = "\n\n## 📊 시각화\n\n"
+                for viz_name, viz_html in visualizations.items():
+                    viz_section += f"### {viz_name}\n{viz_html}\n\n"
+                markdown += viz_section
 
             return ReportAgentResponse(
                 report=final_report,
+                visualizations=visualizations,  # 시각화 데이터 포함
                 metadata={
                     "generated_at": datetime.now(ZoneInfo("Asia/Seoul")).isoformat(),
                     "report_type": request.report_type,
                     "documents_count": len(request.research_data.related_documents),
                     "intent": "full_report",
                     "visualizations": list(visualizations.keys()),
+                    "visualization_count": len(visualizations),
                     "markdown_length": len(markdown),
                     "pdf_bytes": len(pdf),
                 },
@@ -456,36 +478,53 @@ class ReportAgent(BaseAgent):
                         doc_header = f"[{doc.title}]\n저자: {doc.authors or 'Unknown'}\n연도: {doc.year or 'Unknown'}\n\n"
                         context_parts.append(doc_header)
                         continue
+                    
+                    # 중요: 특정 문서의 청크만 검색하도록 where 필터 추가
+                    where_filter = {
+                        "document_id": {"$in": [doc.id, str(doc.id)]}
+                    }
+                    
+                    logger.info(f"[ReportAgent] Searching ChromaDB for document ID: {doc.id}")
                     results = collection.query(
                         query_embeddings=[query_embedding],
                         n_results=10,  # Get up to 10 chunks per document for report context
+                        where=where_filter,
                         include=["documents", "metadatas", "distances"]
                     )
                     
                     if results and results["ids"] and len(results["ids"]) > 0:
+                        logger.info(f"[ReportAgent] ChromaDB returned {len(results['ids'][0])} chunks for document {idx}")
                         chunks_text = []
-                        filename = None
+                        document_title = doc.title  # 논문 제목 우선
+                        document_filename = None
                         for i, result_id in enumerate(results["ids"][0]):
                             metadata = results["metadatas"][0][i]
                             chunk_text = results["documents"][0][i]
+                            chunk_doc_id = metadata.get("document_id")
+                            
+                            logger.debug(f"[ReportAgent] Chunk {i}: doc_id={chunk_doc_id}, expected={doc.id}, match={chunk_doc_id == doc.id or str(chunk_doc_id) == str(doc.id)}")
                             
                             # Check if this chunk belongs to the current document
-                            chunk_doc_id = metadata.get("document_id")
                             if chunk_doc_id == doc.id or str(chunk_doc_id) == str(doc.id):
                                 chunks_text.append(chunk_text)
-                                if not filename:
-                                    filename = metadata.get("filename", doc.title)
+                                if not document_filename:
+                                    document_filename = metadata.get("filename")
                         
                         if chunks_text:
                             doc_content = "\n\n".join(chunks_text[:5])  # Use top 5 chunks
-                            doc_header = f"[{filename}]\n저자: {doc.authors or 'Unknown'}\n연도: {doc.year or 'Unknown'}\n\n"
+                            # 제목 우선, 파일명은 부가 정보로
+                            title_display = document_title or document_filename or "Unknown"
+                            doc_header = f"[{title_display}]\n"
+                            if document_filename and document_title and document_filename != document_title:
+                                doc_header += f"파일명: {document_filename}\n"
+                            doc_header += f"저자: {doc.authors or 'Unknown'}\n연도: {doc.year or 'Unknown'}\n\n"
                             context_parts.append(f"{doc_header}{doc_content}")
-                            logger.info(f"[ReportAgent] Retrieved {len(chunks_text)} chunks for document {idx}")
+                            logger.info(f"[ReportAgent] Successfully retrieved {len(chunks_text)} chunks for document {idx} (ID: {doc.id})")
                         else:
                             # Fallback to metadata if no matching chunks found
                             doc_header = f"[{doc.title}]\n저자: {doc.authors or 'Unknown'}\n연도: {doc.year or 'Unknown'}\n\n"
                             context_parts.append(doc_header)
-                            logger.warning(f"[ReportAgent] No matching chunks found for document {idx}, using metadata")
+                            logger.warning(f"[ReportAgent] No matching chunks found for document {idx} (ID: {doc.id}), using metadata only")
                     else:
                         # Fallback to metadata if ChromaDB query returns nothing
                         doc_header = f"[{doc.title}]\n저자: {doc.authors or 'Unknown'}\n연도: {doc.year or 'Unknown'}\n\n"
@@ -613,3 +652,34 @@ Year: {doc.year or 'Unknown'}"""
         except Exception as e:
             logger.error(f"[ReportAgent] Error generating evidence summary: {str(e)}")
             return "증거 종합 분석이 진행 중입니다."
+
+    def _extract_visualization_data(self, report_content: str) -> Optional[Dict[str, Any]]:
+        """
+        Extract visualization data from LLM report content
+        Looks for JSON block with visualization_data
+        """
+        try:
+            # Find JSON block in report content
+            json_pattern = r'```json\s*(\{.*?"visualization_data".*?\})\s*```'
+            match = re.search(json_pattern, report_content, re.DOTALL)
+            
+            if match:
+                json_str = match.group(1)
+                data = json.loads(json_str)
+                
+                if "visualization_data" in data:
+                    logger.info(f"[ReportAgent] Successfully extracted visualization data")
+                    return data["visualization_data"]
+                else:
+                    logger.warning(f"[ReportAgent] JSON found but no visualization_data key")
+                    return None
+            else:
+                logger.warning(f"[ReportAgent] No JSON visualization block found in report")
+                return None
+                
+        except json.JSONDecodeError as e:
+            logger.error(f"[ReportAgent] JSON parsing error: {str(e)}")
+            return None
+        except Exception as e:
+            logger.error(f"[ReportAgent] Error extracting visualization data: {str(e)}")
+            return None

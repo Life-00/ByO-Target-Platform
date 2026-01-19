@@ -125,6 +125,10 @@ class ResearchReport(BaseModel):
 class ReportAgentResponse(BaseModel):
     """Output schema for report generation"""
     report: ResearchReport = Field(..., description="Generated research report")
+    visualizations: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Visualization HTML strings"
+    )
     metadata: Dict[str, Any] = Field(
         default_factory=dict,
         description="Additional metadata"
