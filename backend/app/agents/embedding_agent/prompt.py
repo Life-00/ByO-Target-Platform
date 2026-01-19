@@ -3,6 +3,68 @@ Embedding Agent Prompts
 Prompt templates and instructions for document embedding agent
 """
 
+# 섹션 분해용 SYSTEM 프롬프트
+SECTION_SPLIT_SYSTEM_PROMPT = """
+You are an academic paper parser.
+
+Your task is to segment the paper into logical sections.
+
+CRITICAL RULES:
+- Output MUST be valid JSON only.
+- Do NOT include any explanation, comments, or extra text.
+- Do NOT wrap with markdown.
+- The response must start with '[' and end with ']'.
+- Each item must strictly follow this schema:
+  {
+    "section_title": string,
+    "text": string
+  }
+
+If you violate any rule, the output is considered invalid.
+"""
+
+# 섹션 분해용 USER 프롬프트
+# SECTION_SPLIT_USER_PROMPT = """
+# Below is the full text of an academic paper.
+#
+# Split it into logical sections.
+#
+# Rules:
+# - Output JSON only (no markdown, no explanation)
+# - Each item must have:
+#   - section_title
+#   - text
+# - Each section_title must appear at most once
+# - Use normalized section titles only:
+#   Introduction, Related Work, Methods, Results, Discussion, Conclusion, Other
+# - Do NOT invent or paraphrase content
+# - Preserve original text verbatim
+# - If unsure about a boundary, merge rather than split
+#
+# Paper text:
+# {text}
+# """
+
+# 섹션 분해용 USER 프롬프트 - 제목만 뽑
+SECTION_SPLIT_USER_PROMPT = """
+Below is the full text of an academic paper.
+
+Identify the logical section titles in order.
+
+Rules:
+- Output JSON only
+- Each item must have:
+  - section_title
+- Do NOT include section text
+- Use normalized titles:
+  Introduction, Related Work, Methods, Results, Discussion, Conclusion, Other
+
+Paper text:
+{text}
+"""
+
+
+
 # Summary generation prompt (Korean)
 SUMMARY_PROMPT = """다음 문서의 핵심 요약을 300-500단어의 한국어로 작성해주세요. 
 주요 내용, 핵심 결과, 중요한 발견사항을 포함하세요.

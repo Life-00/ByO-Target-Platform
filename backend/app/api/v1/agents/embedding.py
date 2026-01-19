@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.embedding_agent.agent import EmbeddingAgent
+from app.agents.embedding_agent.schemas import EmbeddingAgentInputSchema
 from app.api.deps import get_current_user
 from app.db.database import get_db_session
 from app.db.models import Document
@@ -82,8 +83,12 @@ async def analyze_pdf(
     # Initialize EmbeddingAgent
     agent = EmbeddingAgent(db, embedding_service)
 
-    # Process the PDF (includes text extraction, chunking, embedding, and summary generation)
-    file_path = document.file_path
-    response = await agent.process_pdf(document_id, file_path)
+    # Process the PDF using execute method
+    request = EmbeddingAgentInputSchema(
+        document_id=document_id,
+        chunk_size=512
+    )
+    
+    response = await agent.execute(request)
 
     return response

@@ -6,7 +6,7 @@ Handles PDF downloading and database registration
 import logging
 import urllib.request
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Optional, Callable
 from datetime import datetime
 
 from app.agents.search_agent.schemas import PaperInfo
@@ -21,7 +21,8 @@ async def download_pdfs(
     session_id: int,
     user_id: int,
     uploads_dir: Path,
-    db: AsyncSession = None
+    db: AsyncSession = None,
+    background_tasks: Optional[object] = None,
 ) -> Dict[str, List]:
     """
     Download PDFs to session-specific directory and register in DB
@@ -98,6 +99,18 @@ async def download_pdfs(
         try:
             await db.commit()
             logger.info(f"[PDFDownload] Committed {len(document_ids)} documents to DB")
+            
+            # Schedule auto-indexing for each downloaded document
+            if background_tasks:
+                from app.api.v1.documents import auto_index_document
+                for doc_id in document_ids:
+                    background_tasks.add_task(
+                        auto_index_document,
+                        document_id=doc_id,
+                        user_id=user_id
+                    )
+                logger.info(f"[PDFDownload] Scheduled auto-indexing for {len(document_ids)} documents")
+                
         except Exception as e:
             logger.error(f"[PDFDownload] DB commit failed: {str(e)}")
             await db.rollback()

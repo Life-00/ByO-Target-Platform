@@ -422,6 +422,31 @@ class EmbeddingService:
         if self.cache:
             self.cache.clear()
 
+    def get_collection(self):
+        """
+        Get ChromaDB collection for semantic search
+        Returns the "document_embeddings" collection or None if unavailable
+        """
+        try:
+            import chromadb
+            
+            client = chromadb.HttpClient(
+                host=settings.chromadb_host,
+                port=settings.chromadb_port
+            )
+            
+            collection = client.get_or_create_collection(
+                name="document_embeddings",
+                metadata={"description": "PDF document embeddings"}
+            )
+            
+            logger.info("[EmbeddingService] ChromaDB collection retrieved")
+            return collection
+            
+        except Exception as e:
+            logger.error(f"[EmbeddingService] Failed to get ChromaDB collection: {str(e)}")
+            return None
+
 
 # 싱글톤 인스턴스
 _embedding_service_instance: Optional[EmbeddingService] = None

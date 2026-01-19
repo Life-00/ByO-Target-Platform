@@ -28,6 +28,7 @@ from app.agents.report_agent.data_normalizer import DataNormalizer
 from app.agents.report_agent.report_builder import ReportBuilder
 from app.agents.report_agent.visualizer import Visualizer
 from app.services.llm_service import get_llm_service
+from app.services.embedding_service import get_embedding_service
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,7 @@ class ReportAgent(BaseAgent):
         self.system_prompt = SYSTEM_PROMPT
         self.llm_service = get_llm_service()
         self.llm_integration = LLMIntegration()
+        self.embedding_service = get_embedding_service()
 
     async def execute(self, request: ReportAgentRequest) -> ReportAgentResponse:
         """
@@ -432,20 +434,84 @@ class ReportAgent(BaseAgent):
     # ============================================================================
 
     async def _prepare_documents_context(self, documents: List) -> str:
-        """Prepare formatted document context for LLM"""
+        """
+        Prepare formatted document context for LLM with semantic search
+        
+        For each document, retrieves the most relevant chunks from ChromaDB
+        to provide rich, meaningful context rather than just metadata
+        """
         try:
             context_parts = []
+            
+            # Extract document IDs and research topic/goal from the request
+            document_ids = [doc.id for doc in documents]
+            
+            logger.info(f"[ReportAgent] Preparing context for {len(documents)} documents")
+            
+            # For report agent, we want broader context, so use the document titles as search queries
+            for idx, doc in enumerate(documents, 1):
+                doc_header = f"[문서 {idx}] {doc.title}\n저자: {doc.authors or 'Unknown'}\n연도: {doc.year or 'Unknown'}\n\n"
+                
+                try:
+                    # Semantic search for relevant chunks from this document
+                    # Use document title as initial query for broader context
+                    embed_result = await self.embedding_service.embed(doc.title, use_cache=True)
+                    query_embedding = embed_result["embedding"]
+                    
+                    # Get ChromaDB collection
+                    collection = self.embedding_service.get_collection()
+                    
+                    if not collection:
+                        logger.warning(f"[ReportAgent] ChromaDB unavailable for document {idx}, using metadata")
+                        context_parts.append(doc_header)
+                        continue
+                    results = collection.query(
+                        query_embeddings=[query_embedding],
+                        n_results=10,  # Get up to 10 chunks per document for report context
+                        include=["documents", "metadatas", "distances"]
+                    )
+                    
+                    if results and results["ids"] and len(results["ids"]) > 0:
+                        chunks_text = []
+                        for i, result_id in enumerate(results["ids"][0]):
+                            metadata = results["metadatas"][0][i]
+                            chunk_text = results["documents"][0][i]
+                            
+                            # Check if this chunk belongs to the current document
+                            chunk_doc_id = metadata.get("document_id")
+                            if chunk_doc_id == doc.id or str(chunk_doc_id) == str(doc.id):
+                                chunks_text.append(chunk_text)
+                        
+                        if chunks_text:
+                            doc_content = "\n\n".join(chunks_text[:5])  # Use top 5 chunks
+                            context_parts.append(f"{doc_header}{doc_content}")
+                            logger.info(f"[ReportAgent] Retrieved {len(chunks_text)} chunks for document {idx}")
+                        else:
+                            # Fallback to metadata if no matching chunks found
+                            context_parts.append(doc_header)
+                            logger.warning(f"[ReportAgent] No matching chunks found for document {idx}, using metadata")
+                    else:
+                        # Fallback to metadata if ChromaDB query returns nothing
+                        context_parts.append(doc_header)
+                        logger.warning(f"[ReportAgent] ChromaDB query returned no results for document {idx}")
+                        
+                except Exception as chunk_error:
+                    logger.warning(f"[ReportAgent] Error retrieving chunks for document {idx}: {str(chunk_error)}")
+                    # Fallback to metadata
+                    context_parts.append(doc_header)
+
+            return "\n\n---\n\n".join(context_parts)
+
+        except Exception as e:
+            logger.error(f"[ReportAgent] Error preparing documents: {str(e)}")
+            # Fallback: return simple metadata
+            fallback_parts = []
             for idx, doc in enumerate(documents, 1):
                 doc_text = f"""[{idx}] {doc.title}
 Authors: {doc.authors or 'Unknown'}
 Year: {doc.year or 'Unknown'}"""
-                context_parts.append(doc_text)
-
-            return "\n\n".join(context_parts)
-
-        except Exception as e:
-            logger.error(f"[ReportAgent] Error preparing documents: {str(e)}")
-            raise
+                fallback_parts.append(doc_text)
+            return "\n\n".join(fallback_parts)
 
     async def _generate_main_report(
         self,

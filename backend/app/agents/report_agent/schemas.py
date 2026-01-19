@@ -17,20 +17,23 @@ class DocumentReference(BaseModel):
 
 class ResearchTopicData(BaseModel):
     """Research topic and related documents"""
-    topic: str = Field(..., description="Research topic/hypothesis")
+    topic: Optional[str] = Field(None, description="Research topic/hypothesis")
     description: Optional[str] = Field(None, description="Detailed description")
     analysis_goal: Optional[str] = Field(None, description="Analysis focus")
     related_documents: List[DocumentReference] = Field(
         default_factory=list,
         description="Documents relevant to the topic"
     )
+    
+    class Config:
+        extra = "allow"  # Allow extra fields
 
 
 class ReportAgentRequest(BaseModel):
     """Input schema for report generation"""
     research_topic: str = Field(
         ...,
-        min_length=10,
+        min_length=1,
         max_length=2000,
         description="Research topic/hypothesis to validate"
     )
@@ -43,11 +46,11 @@ class ReportAgentRequest(BaseModel):
         description="Report type: comprehensive, summary, or detailed"
     )
     include_visualizations: bool = Field(
-        default=True,
+        default=False,
         description="Include graphs and visualizations in report"
     )
     include_network_graph: bool = Field(
-        default=True,
+        default=False,
         description="Include research evidence network graph"
     )
     temperature: float = Field(
@@ -57,11 +60,14 @@ class ReportAgentRequest(BaseModel):
         description="LLM temperature for creative analysis"
     )
     max_tokens: int = Field(
-        default=4096,
+        default=2048,
         ge=1000,
         le=8192,
         description="Maximum tokens in response"
     )
+    
+    class Config:
+        extra = "allow"  # Allow extra fields
 
 
 class ResearchValidation(BaseModel):

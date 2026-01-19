@@ -9,7 +9,7 @@ import logging
 from typing import Annotated
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.search_agent import SearchAgent, SearchAgentRequest, SearchAgentResponse
@@ -35,6 +35,7 @@ router = APIRouter(prefix="/search", tags=["agents"])
 )
 async def search_papers(
     request: SearchAgentRequest,
+    background_tasks: BackgroundTasks,
     current_user: Annotated[dict, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> SearchAgentResponse:
@@ -78,7 +79,7 @@ async def search_papers(
         logger.info(f"[SearchAPI] Saved user message ID: {user_message.id}")
 
         # Execute search
-        agent = SearchAgent(db=db)
+        agent = SearchAgent(db=db, background_tasks=background_tasks)
         response = await agent.execute(request)
 
         if not response.success:

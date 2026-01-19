@@ -8,9 +8,10 @@ Provides:
 - DELETE /api/v1/documents/{doc_id} - Delete document
 """
 
+import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status, BackgroundTasks
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +24,11 @@ from app.schemas.document import (
     DocumentUploadRequest,
 )
 from app.services.document_service import DocumentService
+from app.agents.embedding_agent.agent import EmbeddingAgent
+from app.agents.embedding_agent.schemas import EmbeddingAgentInputSchema
+from app.services.embedding_service import get_embedding_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -41,6 +47,7 @@ router = APIRouter(prefix="/documents", tags=["documents"])
     },
 )
 async def upload_document(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(
         ...,
         description="PDF file (max 50MB)",
@@ -114,7 +121,7 @@ async def upload_document(
     )
 
     # Upload document
-    return await DocumentService.upload_document(
+    document = await DocumentService.upload_document(
         db=db,
         user_id=current_user["user_id"],
         request=request,
@@ -122,6 +129,47 @@ async def upload_document(
         file_name=file.filename,
         mime_type=file.content_type,
     )
+    
+    # Auto-index document with embedding agent in background
+    background_tasks.add_task(
+        auto_index_document,
+        document_id=document.id,
+        user_id=current_user["user_id"]
+    )
+    logger.info(f"[DocumentUpload] Document {document.id} uploaded, background indexing scheduled")
+    
+    return document
+
+
+async def auto_index_document(document_id: int, user_id: int):
+    """Background task to automatically index uploaded documents"""
+    try:
+        logger.info(f"[AutoIndex] Starting indexing for document {document_id}")
+        
+        # Get new DB session for background task
+        async for db in get_db_session():
+            try:
+                embedding_service = get_embedding_service()
+                agent = EmbeddingAgent(db=db, embedding_service=embedding_service)
+                
+                request = EmbeddingAgentInputSchema(
+                    document_id=document_id,
+                    chunk_size=512
+                )
+                
+                result = await agent.execute(request)
+                
+                if result.success:
+                    logger.info(f"[AutoIndex] Document {document_id} indexed: {result.chunk_count} chunks, {result.embedding_count} embeddings")
+                else:
+                    logger.error(f"[AutoIndex] Failed to index document {document_id}: {result.error}")
+                    
+            finally:
+                await db.close()
+                break
+                
+    except Exception as e:
+        logger.error(f"[AutoIndex] Exception indexing document {document_id}: {str(e)}")
 
 
 @router.get(

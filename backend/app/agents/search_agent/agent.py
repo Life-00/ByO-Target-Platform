@@ -36,12 +36,13 @@ class SearchAgent(BaseAgent):
     Coordinates arXiv paper search, relevance filtering, and PDF download
     """
 
-    def __init__(self, db: AsyncSession = None):
+    def __init__(self, db: AsyncSession = None, background_tasks: object = None):
         """Initialize search agent"""
         super().__init__()
         self.agent_type = "search_agent"
         self.llm_service = get_llm_service()
         self.db = db
+        self.background_tasks = background_tasks
         self.uploads_dir = Path("/app/uploads")  # Docker container path
         self.uploads_dir.mkdir(parents=True, exist_ok=True)
 
@@ -114,7 +115,8 @@ class SearchAgent(BaseAgent):
                 request.session_id,
                 request.user_id,
                 self.uploads_dir,
-                self.db
+                self.db,
+                self.background_tasks
             )
             logger.info(f"[SearchAgent] Downloaded {len(download_results['paths'])} PDFs")
 

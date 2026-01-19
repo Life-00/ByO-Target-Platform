@@ -23,12 +23,12 @@ services:
 
   # ChromaDB Vector Database
   chromadb:
-    image: chromadb/chroma:latest
+    image: chromadb/chroma:0.5.23
     container_name: tva-chromadb
     environment:
-      CHROMA_DB_IMPL: duckdb+parquet
-      PERSIST_DIRECTORY: /chroma_data
-      ANONYMIZED_TELEMETRY: false
+      IS_PERSISTENT: "TRUE"
+      PERSIST_DIRECTORY: /chroma/chroma
+      ANONYMIZED_TELEMETRY: "FALSE"
     ports:
       - "8000:8000"
     volumes:
