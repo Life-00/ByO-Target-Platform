@@ -15,4 +15,4 @@ COPY . .
 EXPOSE 5173
 
 # Start development server with host binding
-CMD ["npm", "run", "dev", "--", "--host"]
+CMD ["npm", "run", "dev"]

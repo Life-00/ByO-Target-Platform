@@ -13,7 +13,7 @@ SYSTEM_PROMPT = """당신은 과학 논문과 학술 문서를 분석하는 전�
 
 **답변 형식:**
 - 명확하고 간결한 한국어
-- 각 주장 뒤에 [문서명, p.X] 형식으로 출처 표기
+- 각 주장 뒤에 [파일명] 형식으로 출처 표기
 - 여러 문서의 정보를 종합할 경우 모든 출처 명시
 - 불확실한 경우 "문서에 따르면..." 같은 표현 사용
 
@@ -34,7 +34,8 @@ ANALYSIS_PROMPT = """
 {context_chunks}
 
 위 문서들을 기반으로 사용자의 질문에 답변해주세요.
-반드시 각 주장마다 [문서명, p.페이지번호] 형식으로 출처를 명시하세요.
+반드시 각 주장마다 [파일명] 형식으로 출처를 명시하세요.
+고유명사(브랜드명, 기술명, 논문 제목 등)를 제외하고는 모두 한글로 작성해주세요.
 문서에 없는 내용은 답변하지 마세요."""
 
 
@@ -42,4 +43,4 @@ ANALYSIS_PROMPT = """
 DEFAULT_TOP_K = 5
 DEFAULT_MIN_RELEVANCE = 0.5
 DEFAULT_TEMPERATURE = 0.3  # Low temperature for factual accuracy
-DEFAULT_MAX_TOKENS = 2048
+DEFAULT_MAX_TOKENS = 4096  # 한글 토큰 수 고려하여 증가

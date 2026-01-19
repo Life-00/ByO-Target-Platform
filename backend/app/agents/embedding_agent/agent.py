@@ -167,6 +167,15 @@ class EmbeddingAgent(BaseAgent):
         if not self.embedding_service:
             raise RuntimeError("EmbeddingService not initialized")
 
+        # Get document details for metadata
+        result = await self.db.execute(
+            select(Document).where(Document.id == document_id)
+        )
+        document = result.scalar_one_or_none()
+        
+        if not document:
+            raise ValueError(f"Document with ID {document_id} not found")
+
         full_text, page_texts = await self.extract_text(file_path)
         sections = await self.split_into_sections_with_llm(full_text)
 
@@ -223,6 +232,8 @@ class EmbeddingAgent(BaseAgent):
                     "chunk_index": c.chunk_index,
                     "section_title": r["section_title"],
                     "char_count": c.char_count,
+                    "filename": document.file_name,
+                    "document_title": document.title,
                 }
                 for c, r in zip(db_chunks, chunk_records)
             ],

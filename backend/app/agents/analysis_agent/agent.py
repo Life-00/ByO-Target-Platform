@@ -156,7 +156,7 @@ class AnalysisAgent(BaseAgent):
                         metadata={
                             "document_id": chunk.get("document_id"),
                             "document_title": chunk.get("document_title"),
-                            "page_number": chunk.get("page_number"),
+                            "filename": chunk.get("filename", chunk.get("document_title", "Unknown")),
                             "section_type": chunk.get("section_type"),
                         }
                     )
@@ -331,7 +331,7 @@ class AnalysisAgent(BaseAgent):
                     "chroma_id": chroma_id,
                     "document_id": doc_id,
                     "chunk_index": metadata.get("chunk_index"),
-                    "page_number": metadata.get("page_number"),
+                    "filename": metadata.get("filename", metadata.get("document_title", "Unknown")),
                     "section_title": metadata.get("section_title", "Full Document"),
                     "text": results["documents"][0][i],
                     "distance": distance,
@@ -405,9 +405,11 @@ class AnalysisAgent(BaseAgent):
             # Convert document_ids to integers (in case they're strings)
             doc_ids_int = [int(doc_id) for doc_id in document_ids]
 
-            # Get all chunks for selected documents
+            # Get chunks with document metadata for filename
+            from sqlalchemy.orm import joinedload
             result = await self.db.execute(
                 select(DocumentChunk)
+                .options(joinedload(DocumentChunk.document))
                 .where(DocumentChunk.document_id.in_(doc_ids_int))
                 .order_by(DocumentChunk.document_id, DocumentChunk.chunk_index)
                 .limit(top_k * 3)  # Get more than needed
@@ -453,7 +455,8 @@ class AnalysisAgent(BaseAgent):
                         "chroma_id": chunk.chroma_id,
                         "document_id": chunk.document_id,
                         "chunk_index": chunk.chunk_index,
-                        "page_number": chunk.page_number,
+                        "filename": chunk.document.file_name if chunk.document else "Unknown",
+                        "document_title": chunk.document.title if chunk.document else "Unknown",
                         "text": chunk.text_content,
                         "distance": 1.0 / (score + 1),  # Lower distance for higher score
                         "relevance_score": score
@@ -542,11 +545,11 @@ class AnalysisAgent(BaseAgent):
             context_parts = []
             for i, chunk in enumerate(chunks, 1):
                 doc_title = chunk.get("document_title", "Unknown Document")
-                page_num = chunk.get("page_number", "?")
+                filename = chunk.get("filename", chunk.get("document_title", "Unknown"))
                 text = chunk.get("text", "")
                 
                 context_parts.append(
-                    f"[{i}] 문서: {doc_title}, 페이지: {page_num}\n{text}\n"
+                    f"[{i}] 파일: {filename}\n{text}\n"
                 )
 
             context_text = "\n---\n".join(context_parts)
@@ -612,7 +615,7 @@ class AnalysisAgent(BaseAgent):
                 citation = CitationInfo(
                     document_id=doc_id,
                     document_title=chunk.get("document_title", "Unknown"),
-                    page_number=chunk.get("page_number", 0),
+                    filename=chunk.get("filename", chunk.get("document_title", "Unknown")),
                     chunk_index=chunk.get("chunk_index", 0),
                     text_excerpt=chunk["text"][:200] + "..." if len(chunk["text"]) > 200 else chunk["text"],
                     relevance_score=chunk.get("relevance_score", 0.0)

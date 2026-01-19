@@ -442,8 +442,6 @@ class ReportAgent(BaseAgent):
             
             # For report agent, we want broader context, so use the document titles as search queries
             for idx, doc in enumerate(documents, 1):
-                doc_header = f"[문서 {idx}] {doc.title}\n저자: {doc.authors or 'Unknown'}\n연도: {doc.year or 'Unknown'}\n\n"
-                
                 try:
                     # Semantic search for relevant chunks from this document
                     # Use document title as initial query for broader context
@@ -455,6 +453,7 @@ class ReportAgent(BaseAgent):
                     
                     if not collection:
                         logger.warning(f"[ReportAgent] ChromaDB unavailable for document {idx}, using metadata")
+                        doc_header = f"[{doc.title}]\n저자: {doc.authors or 'Unknown'}\n연도: {doc.year or 'Unknown'}\n\n"
                         context_parts.append(doc_header)
                         continue
                     results = collection.query(
@@ -465,6 +464,7 @@ class ReportAgent(BaseAgent):
                     
                     if results and results["ids"] and len(results["ids"]) > 0:
                         chunks_text = []
+                        filename = None
                         for i, result_id in enumerate(results["ids"][0]):
                             metadata = results["metadatas"][0][i]
                             chunk_text = results["documents"][0][i]
@@ -473,23 +473,29 @@ class ReportAgent(BaseAgent):
                             chunk_doc_id = metadata.get("document_id")
                             if chunk_doc_id == doc.id or str(chunk_doc_id) == str(doc.id):
                                 chunks_text.append(chunk_text)
+                                if not filename:
+                                    filename = metadata.get("filename", doc.title)
                         
                         if chunks_text:
                             doc_content = "\n\n".join(chunks_text[:5])  # Use top 5 chunks
+                            doc_header = f"[{filename}]\n저자: {doc.authors or 'Unknown'}\n연도: {doc.year or 'Unknown'}\n\n"
                             context_parts.append(f"{doc_header}{doc_content}")
                             logger.info(f"[ReportAgent] Retrieved {len(chunks_text)} chunks for document {idx}")
                         else:
                             # Fallback to metadata if no matching chunks found
+                            doc_header = f"[{doc.title}]\n저자: {doc.authors or 'Unknown'}\n연도: {doc.year or 'Unknown'}\n\n"
                             context_parts.append(doc_header)
                             logger.warning(f"[ReportAgent] No matching chunks found for document {idx}, using metadata")
                     else:
                         # Fallback to metadata if ChromaDB query returns nothing
+                        doc_header = f"[{doc.title}]\n저자: {doc.authors or 'Unknown'}\n연도: {doc.year or 'Unknown'}\n\n"
                         context_parts.append(doc_header)
                         logger.warning(f"[ReportAgent] ChromaDB query returned no results for document {idx}")
                         
                 except Exception as chunk_error:
                     logger.warning(f"[ReportAgent] Error retrieving chunks for document {idx}: {str(chunk_error)}")
                     # Fallback to metadata
+                    doc_header = f"[{doc.title}]\n저자: {doc.authors or 'Unknown'}\n연도: {doc.year or 'Unknown'}\n\n"
                     context_parts.append(doc_header)
 
             return "\n\n---\n\n".join(context_parts)

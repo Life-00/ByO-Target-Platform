@@ -22,7 +22,7 @@ class CitationInfo(BaseModel):
     """Information about a citation/source"""
     document_id: int = Field(..., description="Document ID")
     document_title: str = Field(..., description="Document title")
-    page_number: int = Field(..., description="Page number where evidence was found")
+    filename: str = Field(..., description="Original filename")
     chunk_index: int = Field(..., description="Chunk index within document")
     text_excerpt: str = Field(..., description="Relevant text excerpt")
     relevance_score: float = Field(..., description="Relevance score (0-1)")

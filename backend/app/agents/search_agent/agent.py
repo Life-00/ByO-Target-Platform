@@ -18,10 +18,11 @@ from app.agents.base_agent import BaseAgent
 from app.agents.search_agent.schemas import SearchAgentRequest, SearchAgentResponse, PaperInfo
 from app.agents.search_agent.prompt import (
     SEARCH_QUERY_GENERATION_PROMPT,
-    RELEVANCE_EVALUATION_PROMPT,
+    ENHANCED_RELEVANCE_EVALUATION_PROMPT,
     REQUESTED_COUNT_EXTRACTION_PROMPT,
     DEFAULT_MAX_RESULTS,
 )
+from app.agents.search_agent.advanced_filter import AdvancedPaperFilter
 from app.agents.search_agent.arxiv_search import search_arxiv
 from app.agents.search_agent.pdf_download import download_pdfs
 from app.services.llm_service import get_llm_service
@@ -34,6 +35,7 @@ class SearchAgent(BaseAgent):
     """
     Search Agent (Orchestrator)
     Coordinates arXiv paper search, relevance filtering, and PDF download
+    Enhanced with adaptive cutoff, diversity selection, and reliability gates
     """
 
     def __init__(self, db: AsyncSession = None, background_tasks: object = None):
@@ -45,6 +47,7 @@ class SearchAgent(BaseAgent):
         self.background_tasks = background_tasks
         self.uploads_dir = Path("/app/uploads")  # Docker container path
         self.uploads_dir.mkdir(parents=True, exist_ok=True)
+        self.advanced_filter = AdvancedPaperFilter()  # 새로운 고급 필터
 
     async def execute(self, request: SearchAgentRequest) -> SearchAgentResponse:
         """
@@ -98,8 +101,8 @@ class SearchAgent(BaseAgent):
                     metadata={"message": "No papers found for this query"}
                 )
 
-            # Step 3: Filter by relevance
-            filtered_papers = await self._filter_by_relevance(
+            # Step 3: Enhanced filtering with 3-axis evaluation (Relevance, Diversity, Reliability)
+            filtered_papers = await self._enhanced_filter_papers(
                 papers,
                 request.content,
                 request.analysis_goal,
@@ -269,3 +272,134 @@ class SearchAgent(BaseAgent):
         # Sort by relevance score
         filtered.sort(key=lambda x: x.relevance_score, reverse=True)
         return filtered[:max_results]
+
+    async def _enhanced_filter_papers(
+        self, 
+        papers: List[Dict], 
+        content: str, 
+        analysis_goal: Optional[str],
+        min_score: float,
+        max_results: int,
+        existing_arxiv_ids: set
+    ) -> List[PaperInfo]:
+        """
+        Enhanced paper filtering with 3-axis evaluation:
+        1. Relevance (기존 + 향상)
+        2. Diversity (MMR을 통한 다양성 확보) 
+        3. Reliability (신뢰성 게이트)
+        """
+        logger.info(f"[SearchAgent] Starting enhanced filtering for {len(papers)} papers")
+        
+        # Phase 1: Initial relevance and reliability assessment
+        evaluated_papers = []
+        
+        for paper in papers:
+            try:
+                # Skip duplicates
+                if paper["arxiv_id"] in existing_arxiv_ids:
+                    logger.info(f"[SearchAgent] Skipping duplicate: {paper['arxiv_id']}")
+                    continue
+
+                # Enhanced LLM evaluation
+                prompt = ENHANCED_RELEVANCE_EVALUATION_PROMPT.format(
+                    content=content,
+                    analysis_goal=analysis_goal or "General research",
+                    title=paper["title"],
+                    abstract=paper["abstract"][:1200]  # Longer abstract for better evaluation
+                )
+
+                response = await self.llm_service.generate(
+                    messages=[{"role": "user", "content": prompt}],
+                    system_prompt="You are an expert biomedical research evaluator.",
+                    temperature=0.2,  # Lower temperature for more consistent evaluation
+                    max_tokens=300
+                )
+
+                # Parse enhanced response
+                result = json.loads(response["content"].strip())
+                relevance_score = float(result.get("relevance_score", 0.0))
+                
+                # Rule-based reliability assessment
+                reliability_assessment = self.advanced_filter.assess_reliability(paper)
+                
+                # Combine LLM insights with rule-based assessment
+                llm_reliability = result.get("reliability_indicators", {})
+                final_reliability = (
+                    reliability_assessment["reliability_score"] * 0.7 +
+                    (sum(llm_reliability.values()) / len(llm_reliability) if llm_reliability else 0.5) * 0.3
+                )
+                
+                # Calculate composite score (weighted average)
+                composite_score = (
+                    relevance_score * 0.6 +           # 60% relevance
+                    final_reliability * 0.3 +         # 30% reliability  
+                    0.1                                # 10% base diversity (will be recalculated later)
+                )
+                
+                logger.info(f"[SearchAgent] '{paper['title'][:50]}...' - R:{relevance_score:.2f}, Rel:{final_reliability:.2f}, Comp:{composite_score:.2f}")
+
+                if relevance_score >= min_score:  # Basic relevance threshold
+                    paper_info = {
+                        "title": paper["title"],
+                        "authors": paper["authors"],
+                        "abstract": paper["abstract"],
+                        "arxiv_id": paper["arxiv_id"],
+                        "pdf_url": paper["pdf_url"],
+                        "published_date": paper["published_date"],
+                        "relevance_score": relevance_score,
+                        "reliability_score": final_reliability,
+                        "composite_score": composite_score,
+                        "reliability_flags": reliability_assessment["flags"],
+                        "coverage_aspects": result.get("coverage_aspects", []),
+                        "metadata": reliability_assessment["metadata"]
+                    }
+                    evaluated_papers.append(paper_info)
+
+            except Exception as e:
+                logger.warning(f"[SearchAgent] Enhanced evaluation failed for paper: {str(e)}")
+                continue
+        
+        if not evaluated_papers:
+            return []
+        
+        # Phase 2: Adaptive cutoff determination
+        relevance_scores = [p["relevance_score"] for p in evaluated_papers]
+        adaptive_cutoff, suggested_count = self.advanced_filter.find_adaptive_cutoff(relevance_scores)
+        
+        logger.info(f"[SearchAgent] Adaptive cutoff: {adaptive_cutoff:.2f}, suggested count: {suggested_count}")
+        
+        # Apply adaptive cutoff
+        high_quality_papers = [p for p in evaluated_papers if p["relevance_score"] >= adaptive_cutoff]
+        
+        # Phase 3: Diversity-aware selection (MMR)
+        if len(high_quality_papers) > max_results:
+            diverse_papers = self.advanced_filter.calculate_mmr_selection(
+                high_quality_papers, 
+                lambda_param=0.7  # Balance: 70% relevance, 30% diversity
+            )
+        else:
+            diverse_papers = high_quality_papers
+        
+        # Convert to PaperInfo objects
+        final_papers = []
+        for paper in diverse_papers[:max_results]:
+            # Add preprint warning to title if needed
+            title = paper["title"]
+            if "preprint" in paper["reliability_flags"]:
+                title = f"[PREPRINT] {title}"
+            
+            paper_info = PaperInfo(
+                title=title,
+                authors=paper["authors"],
+                abstract=paper["abstract"],
+                arxiv_id=paper["arxiv_id"],
+                pdf_url=paper["pdf_url"],
+                published_date=paper["published_date"],
+                relevance_score=paper["relevance_score"],
+                # Store additional metadata in a way that's accessible
+                # You may need to extend PaperInfo schema to include these fields
+            )
+            final_papers.append(paper_info)
+        
+        logger.info(f"[SearchAgent] Final selection: {len(final_papers)} diverse, high-quality papers")
+        return final_papers

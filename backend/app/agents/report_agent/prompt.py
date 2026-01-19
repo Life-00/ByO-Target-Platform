@@ -12,11 +12,11 @@ SYSTEM_PROMPT = """당신은 생명과학 분야 연구 전문가이자 학술 �
 - 연구 가능성, 한계, 권장사항을 균형있게 제시
 
 지침:
-- 모든 답변은 한국어로 작성
+- 모든 답변은 한국어로 작성 (고유명사 및 전문 용어 제외)
 - 논문과 데이터 기반의 객관적 분석
 - 출처와 근거 명시
 - 명확한 논리 전개
-- 전문 용어는 설명 포함"""
+- 전문 용어는 한국어 설명 포함"""
 
 # Main report generation template
 REPORT_GENERATION_PROMPT = """
@@ -33,6 +33,10 @@ REPORT_GENERATION_PROMPT = """
 {documents}
 
 위 정보를 바탕으로 다음 내용을 포함하는 연구 타당성 평가 보고서를 작성하세요:
+
+**인용 규칙**: 
+- 모든 주장과 데이터에 대해 [파일명] 형식으로 출처를 명시하세요
+- 고유명사(브랜드명, 기술명 등)를 제외하고는 모든 내용을 한글로 작성하세요
 
 1. **연구 타당성 평가**
    - 타당성 점수 (0-100)
@@ -98,7 +102,7 @@ SECTION_TITLES = {
 
 # Configuration constants
 DEFAULT_TEMPERATURE = 0.7
-DEFAULT_MAX_TOKENS = 4096
+DEFAULT_MAX_TOKENS = 6144  # Report는 더 긴 내용이 필요하므로 증가
 MIN_TEMPERATURE = 0.0
 MAX_TEMPERATURE = 2.0
 MIN_MAX_TOKENS = 1000

@@ -112,7 +112,7 @@ services:
     ports:
       - "3000:5173"
     environment:
-      - VITE_API_BASE_URL=${VITE_API_BASE_URL:-http://localhost:8001}
+      - VITE_API_BASE_URL=${VITE_API_BASE_URL:-http://127.0.0.1:8001}
       - VITE_API_VERSION=${VITE_API_VERSION:-v1}
       - VITE_APP_NAME=${VITE_APP_NAME:-TVA}
       - VITE_APP_DESCRIPTION=${VITE_APP_DESCRIPTION:-Target Validation Assistant}
