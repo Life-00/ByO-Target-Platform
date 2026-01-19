@@ -15,6 +15,7 @@ class SearchAgentRequest(BaseModel):
     analysis_goal: Optional[str] = Field(None, description="Specific analysis goal or research objective")
     max_results: int = Field(default=5, ge=1, le=20, description="Maximum number of papers to download")
     min_relevance_score: float = Field(default=0.7, ge=0.0, le=1.0, description="Minimum relevance score for filtering")
+    max_query_retries: int = Field(default=0, ge=0, le=3, description="How many times to regenerate queries and retry search when relevance is low")
     selected_documents: Optional[List[Dict[str, Any]]] = Field(default=None, description="Already downloaded documents to exclude from download")
 
 
@@ -25,9 +26,11 @@ class PaperInfo(BaseModel):
     abstract: str = Field(..., description="Paper abstract")
     preprint_id: str = Field(..., description="Europe PMC / bioRxiv identifier")
     doi: str = Field(..., description="DOI for the preprint")
+    pmcid: str = Field(default="", description="PMCID if available")
     arxiv_id: str = Field(default="", description="arXiv ID if available (optional)")
     source: str = Field(..., description="Source repository (bioRxiv or medRxiv)")
     pdf_url: str = Field(..., description="PDF download URL")
+    fulltext_xml_url: str = Field(default="", description="Fulltext XML URL if available")
     published_date: str = Field(..., description="Publication date")
     relevance_score: float = Field(default=0.0, description="Relevance score (0-1)")
 

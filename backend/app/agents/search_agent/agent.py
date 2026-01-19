@@ -24,7 +24,7 @@ from app.agents.search_agent.prompt import (
     DEFAULT_MAX_RESULTS,
     DEFAULT_EXPANSION_COUNT,
 )
-from app.agents.search_agent.europe_pmc_search import search_biorxiv
+from app.agents.search_agent.europe_pmc_search import search_biorxiv, search_biorxiv_api
 from app.agents.search_agent.pdf_download import download_pdfs
 from app.services.llm_service import get_llm_service
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,6 +41,7 @@ class SearchAgent(BaseAgent):
         self.uploads_dir.mkdir(parents=True, exist_ok=True)
 
     async def execute(self, request: SearchAgentRequest) -> SearchAgentResponse:
+        search_query_str = request.content[:100]
         try:
             logger.info(f"[SearchAgent] Starting search: {request.content[:50]}...")
 
@@ -54,39 +55,59 @@ class SearchAgent(BaseAgent):
                     candidate = str(doc.get("external_id") or doc.get("doi") or doc.get("preprint_id") or "").strip()
                     if candidate: existing_preprint_ids.add(candidate)
 
-            # Step 1: 베이스 쿼리 생성 및 다중 쿼리 확장
-            base_query = await self._generate_search_query(request.content, request.analysis_goal)
-            expanded_queries = await self._expand_search_queries(base_query, DEFAULT_EXPANSION_COUNT)
-            logger.info(f"[SearchAgent] Running parallel search for: {expanded_queries}")
+            best_filtered: List[PaperInfo] = []
+            best_merged: List[Dict[str, Any]] = []
 
-            # Step 2: Europe PMC 병렬 검색 + 재시도 로직
-            search_tasks = [
-                self._search_with_retry(q, actual_max_results * 4)
-                for q in expanded_queries
-            ]
-            search_results = await asyncio.gather(*search_tasks)
+            for attempt in range(request.max_query_retries + 1):
+                # Step 1: 베이스 쿼리 생성 및 다중 쿼리 확장 (LLM)
+                base_query = await self._generate_search_query(request.content, request.analysis_goal)
+                expanded_queries = await self._expand_search_queries(base_query, DEFAULT_EXPANSION_COUNT)
+                search_query_str = "; ".join(expanded_queries)
+                logger.info(f"[SearchAgent] Query attempt {attempt+1}/{request.max_query_retries+1} for: {expanded_queries}")
 
-            # 결과 병합 및 중복 제거
-            merged_papers = self._merge_papers(search_results, existing_preprint_ids)
-            logger.info(f"[SearchAgent] Total unique candidates found: {len(merged_papers)}")
+                # Step 2: Europe PMC 병렬 검색 + 재시도 로직
+                search_tasks = [
+                    self._search_with_retry(q, actual_max_results * 4)
+                    for q in expanded_queries
+                ]
+                search_results = await asyncio.gather(*search_tasks)
 
-            if not merged_papers:
-                return SearchAgentResponse(
-                    success=True,
-                    search_query="; ".join(expanded_queries),
-                    papers=[],
-                    metadata={"message": "No papers found"}
+                # 결과 병합 및 중복 제거
+                merged_papers = self._merge_papers(search_results, existing_preprint_ids)
+                if merged_papers:
+                    best_merged = merged_papers
+                logger.info(f"[SearchAgent] Total unique candidates found: {len(merged_papers)}")
+
+                # Europe PMC 결과 없음 -> bioRxiv API fallback
+                if not merged_papers:
+                    if attempt < request.max_query_retries:
+                        logger.info("[SearchAgent] No papers found; regenerating queries and retrying...")
+                        continue
+                    logger.info("[SearchAgent] Europe PMC returned no results; trying bioRxiv API fallback")
+                    merged_papers = await search_biorxiv_api(request.content, actual_max_results * 2)
+                    best_merged = merged_papers
+
+                # Step 3: 병렬 적합성 필터링 및 Knee-cutoff
+                filtered_papers = await self._filter_by_relevance_parallel(
+                    merged_papers,
+                    request.content,
+                    request.analysis_goal,
+                    request.min_relevance_score,
+                    actual_max_results,
+                    existing_preprint_ids
                 )
+                if filtered_papers:
+                    best_filtered = filtered_papers
 
-            # Step 3: 병렬 적합성 필터링 및 Knee-cutoff (merged_papers 변수 사용 수정)
-            filtered_papers = await self._filter_by_relevance_parallel(
-                merged_papers, # 변수명 수정됨
-                request.content,
-                request.analysis_goal,
-                request.min_relevance_score,
-                actual_max_results,
-                existing_preprint_ids
-            )
+                # 재검색 조건: 필터 결과가 없으면 쿼리 재생성 후 재검색
+                if attempt < request.max_query_retries and not filtered_papers:
+                    logger.info("[SearchAgent] No relevant papers after filtering; regenerating queries and retrying...")
+                    continue
+
+                # 충분한 결과 확보 -> 루프 종료
+                filtered_papers = filtered_papers or best_filtered
+                merged_papers = merged_papers or best_merged
+                break
 
             # Step 4: PDF 다운로드 및 DB 등록
             download_results = await download_pdfs(
@@ -97,10 +118,34 @@ class SearchAgent(BaseAgent):
                 self.db
             )
 
+            # Europe PMC에서 본문을 못 내려받은 경우 bioRxiv API로 추가 재검색/재다운로드
+            if not download_results["paths"]:
+                logger.info("[SearchAgent] No fulltext downloaded; falling back to bioRxiv API for fulltext-available papers.")
+                biorxiv_candidates = await search_biorxiv_api(request.content, actual_max_results * 2)
+                if biorxiv_candidates:
+                    best_merged = biorxiv_candidates
+                    bio_filtered = await self._filter_by_relevance_parallel(
+                        biorxiv_candidates,
+                        request.content,
+                        request.analysis_goal,
+                        request.min_relevance_score,
+                        actual_max_results,
+                        existing_preprint_ids,
+                    )
+                    if bio_filtered:
+                        filtered_papers = bio_filtered
+                        download_results = await download_pdfs(
+                            bio_filtered,
+                            request.session_id,
+                            request.user_id,
+                            self.uploads_dir,
+                            self.db,
+                        )
+
             return SearchAgentResponse(
                 success=True,
-                search_query="; ".join(expanded_queries),
-                papers_found=len(merged_papers),
+                search_query=search_query_str,
+                papers_found=len(best_merged or filtered_papers),
                 papers_filtered=len(filtered_papers),
                 papers_downloaded=len(download_results['paths']),
                 papers=filtered_papers,
@@ -114,9 +159,39 @@ class SearchAgent(BaseAgent):
 
         except Exception as e:
             logger.error(f"[SearchAgent] Critical Error: {str(e)}")
-            return SearchAgentResponse(success=False, error=str(e))
+            return SearchAgentResponse(
+                success=False,
+                search_query=search_query_str,
+                papers_found=0,
+                papers_filtered=0,
+                papers_downloaded=0,
+                papers=[],
+                download_paths=[],
+                document_ids=[],
+                error=str(e),
+                metadata={"timestamp": datetime.now().isoformat()}
+            )
+
+    def _sanitize_paper(self, paper: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        필수 필드를 기본값으로 채워 downstream 검증/저장을 안전하게 합니다.
+        """
+        p = dict(paper or {})
+        p.setdefault("title", "")
+        p.setdefault("abstract", "")
+        p.setdefault("authors", [])
+        p.setdefault("preprint_id", p.get("preprint_id") or p.get("doi") or "")
+        p.setdefault("doi", p.get("doi") or p.get("preprint_id") or "")
+        p.setdefault("pmcid", p.get("pmcid") or "")
+        p.setdefault("arxiv_id", p.get("arxiv_id") or "")
+        p.setdefault("source", p.get("source") or "unknown")
+        p.setdefault("pdf_url", p.get("pdf_url") or "")
+        p.setdefault("fulltext_xml_url", p.get("fulltext_xml_url") or "")
+        p.setdefault("published_date", p.get("published_date") or "")
+        return p
 
     async def _evaluate_single_paper(self, paper: Dict[str, Any], content: str, goal: Optional[str]) -> Optional[PaperInfo]:
+        paper = self._sanitize_paper(paper)
         try:
             prompt = RELEVANCE_EVALUATION_PROMPT.format(
                 content=content,
@@ -148,9 +223,11 @@ class SearchAgent(BaseAgent):
                 abstract=paper["abstract"],
                 preprint_id=paper.get("preprint_id") or "",
                 doi=paper.get("doi") or "",
+                pmcid=paper.get("pmcid") or "",
                 arxiv_id=paper.get("arxiv_id") or "",
                 source=paper.get("source") or "biorxiv",
                 pdf_url=paper["pdf_url"],
+                fulltext_xml_url=paper.get("fulltext_xml_url") or "",
                 published_date=paper["published_date"],
                 relevance_score=score
             )
@@ -163,9 +240,11 @@ class SearchAgent(BaseAgent):
                 abstract=paper.get("abstract", ""),
                 preprint_id=paper.get("preprint_id") or "",
                 doi=paper.get("doi") or "",
+                pmcid=paper.get("pmcid") or "",
                 arxiv_id=paper.get("arxiv_id") or "",
                 source=paper.get("source") or "biorxiv",
                 pdf_url=paper.get("pdf_url") or "",
+                fulltext_xml_url=paper.get("fulltext_xml_url") or "",
                 published_date=paper.get("published_date") or "",
                 relevance_score=0.0
             )
@@ -274,6 +353,9 @@ class SearchAgent(BaseAgent):
         merged = {}
         for papers in search_results:
             for paper in papers:
+                paper = self._sanitize_paper(paper)
+                if not paper["title"]:
+                    continue
                 pid = paper.get("preprint_id") or paper.get("doi")
                 if pid and pid not in existing_ids and pid not in merged:
                     merged[pid] = paper
