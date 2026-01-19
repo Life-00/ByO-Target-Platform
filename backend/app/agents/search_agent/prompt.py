@@ -9,15 +9,30 @@ SEARCH_QUERY_GENERATION_PROMPT = """You are an expert at converting research que
 User's Question: {content}
 Analysis Goal: {analysis_goal}
 
-Task: Generate a concise, effective arXiv search query (2-10 keywords) that will find relevant academic papers.
+Task: Generate a concise, effective arXiv search query (2-6 core keywords) optimized for academic paper search.
 
-Guidelines:
-- Focus on technical terms and key concepts
-- Use academic/scientific terminology
-- Avoid common words and articles
-- Keep it focused and specific
+CRITICAL RULES for Academic Paper Search:
+1. Use SIMPLE, CONCRETE terms that actually appear in paper titles/abstracts
+2. AVOID meta-analysis terms: "compare", "comparison", "safety profile", "evaluation", "review"
+3. Use SPECIFIC scientific terminology:
+   - For toxicity: "toxicity", "liver injury", "hepatotoxicity", "adverse events", "ALT", "AST"
+   - For mechanisms: "mechanism", "pathway", "binding", "inhibition"
+   - For drug names: use exact compound names or generic names
+4. Break down complex questions into their CORE CONCEPTS only
+5. If question asks for "comparison", just include the main entities (e.g., "HER2 inhibitor hepatotoxicity" NOT "compare HER2 inhibitors")
 
-Respond with ONLY the search query, no explanations.
+BAD Examples (too ambitious, won't find papers):
+❌ "HER2 inhibitors" AND "hepatotoxicity" COMPARE "approved therapies"
+❌ "SAFETY PROFILES" "neratinib" "tucatinib"
+❌ "compare efficacy" "immunotherapy" "chemotherapy"
+
+GOOD Examples (simple, concrete terms):
+✅ HER2 inhibitor hepatotoxicity
+✅ neratinib liver toxicity
+✅ immunotherapy melanoma
+✅ CRISPR gene editing safety
+
+Respond with ONLY the search query (2-6 keywords), no explanations or quotes.
 
 Search Query:"""
 
