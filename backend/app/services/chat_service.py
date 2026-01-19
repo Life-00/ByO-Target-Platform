@@ -94,9 +94,16 @@ class ChatService:
         final_prompt = system_prompt
         if not final_prompt:
             logger.info("[ChatService] Using default prompt")
-            final_prompt = """You are an expert AI research assistant specializing in academic papers.
-Your task is to analyze, synthesize, and generate insights from scientific literature.
-Be accurate, evidence-based, and cite your sources appropriately."""
+            final_prompt = """당신은 학술 논문 분석 전문가입니다.
+
+역할:
+- 학술 자료를 분석하고 종합하기
+- 과학 문헌에서 통찰력 생성하기
+
+지침:
+- 정확하고 근거 있는 답변하기
+- 출처 인용하기
+- 모든 답변은 반드시 한국어로 하기, 영어는 고유명사만 사용하기"""
 
         # 사용자 메시지 저장
         user_message = ChatMessage(

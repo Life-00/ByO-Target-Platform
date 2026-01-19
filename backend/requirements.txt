@@ -22,3 +22,10 @@ passlib[bcrypt]==1.7.4
 bcrypt==4.1.1
 email-validator==2.1.0
 fastapi-cors==0.0.6
+pandas==2.1.4
+pint==0.23
+PyMuPDF==1.23.8
+plotly==5.18.0
+reportlab==4.0.7
+networkx==3.2.1
+pyvis==0.3.2

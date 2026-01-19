@@ -9,12 +9,13 @@ Routes:
 - /agents/general/* - General chat agent endpoints
 - /agents/search - Search agent endpoints
 - /agents/analysis - Analysis agent endpoints
+- /agents/report/* - Report agent endpoints
 """
 
 from fastapi import APIRouter
 
 from app.api.v1 import auth, documents, sessions
-from app.api.v1.agents import embedding_router, general_router, search_router, analysis_router
+from app.api.v1.agents import embedding_router, general_router, search_router, analysis_router, report_router
 
 # Create main v1 router
 router = APIRouter()
@@ -33,3 +34,4 @@ router.include_router(embedding_router, prefix="/agents")
 router.include_router(general_router, prefix="/agents")
 router.include_router(search_router, prefix="/agents")
 router.include_router(analysis_router, prefix="/agents")
+router.include_router(report_router, prefix="/agents")
