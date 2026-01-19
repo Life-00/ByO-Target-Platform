@@ -137,7 +137,6 @@ const documentService = {
 
       const response = await fetch(`${config.api.apiUrl}${endpoint}`, {
         headers: headers,
-        credentials: 'include',
       });
 
       if (!response.ok) {

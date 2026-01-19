@@ -14,7 +14,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-tva}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-tva} -h postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -67,6 +67,9 @@ services:
     environment:
       # Database
       DATABASE_URL: postgresql+asyncpg://${DB_USER:-tva}:${DB_PASSWORD:-tva_password}@postgres:5432/${DB_NAME:-tva_db}
+      DB_USER: ${DB_USER:-tva}
+      DB_PASSWORD: ${DB_PASSWORD:-tva_password}
+      DB_NAME: ${DB_NAME:-tva_db}
       
       # ChromaDB
       CHROMADB_HOST: chromadb
@@ -76,14 +79,25 @@ services:
       # APIs
       UPSTAGE_API_KEY: ${UPSTAGE_API_KEY}
       
-      # LLM Settings
-      LLM_TEMPERATURE: 0.3
-      LLM_MAX_TOKENS: 2000
-      LLM_TOP_P: 0.9
+      # JWT
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-tva-backend-secret-key-change-in-production}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
+      REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-7}
       
-      # Environment
+      # CORS
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
+      
+      # LLM Settings
+      LLM_MODEL: ${LLM_MODEL:-upstage-solar-pro}
+      LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.3}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-2000}
+      LLM_TOP_P: ${LLM_TOP_P:-0.9}
+      
+      # Server
       ENVIRONMENT: ${ENVIRONMENT:-development}
       DEBUG: ${DEBUG:-true}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     ports:
       - "8001:8000"
     depends_on:

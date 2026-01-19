@@ -25,6 +25,7 @@ class PaperInfo(BaseModel):
     abstract: str = Field(..., description="Paper abstract")
     preprint_id: str = Field(..., description="Europe PMC / bioRxiv identifier")
     doi: str = Field(..., description="DOI for the preprint")
+    arxiv_id: str = Field(default="", description="arXiv ID if available (optional)")
     source: str = Field(..., description="Source repository (bioRxiv or medRxiv)")
     pdf_url: str = Field(..., description="PDF download URL")
     published_date: str = Field(..., description="Publication date")

@@ -1,9 +1,10 @@
 """
 Europe PMC Search Module
-Handles Europe PMC API search for bioRxiv/medRxiv preprints and result parsing
+Handles Europe PMC API search for bioRxiv/medRxiv preprints and result parsing.
 """
 
 import logging
+import re
 from typing import List, Dict, Any, Optional
 
 import httpx
@@ -16,28 +17,37 @@ EUROPE_PMC_API_BASE_URL = "https://www.ebi.ac.uk/europepmc/webservices/rest/sear
 async def search_biorxiv(query: str, max_results: int = 15) -> List[Dict[str, Any]]:
     """
     Search Europe PMC for bioRxiv/medRxiv preprints and parse results.
-    
-    Args:
-        query: Search query string
-        max_results: Maximum number of results to fetch
-        
-    Returns:
-        List of paper dictionaries with title, abstract, ids, authors, etc.
+
+    A minimal filter is applied first (source restriction only). If no
+    results are returned, a fallback query without source restriction is tried.
+    This avoids over-restrictive filters (e.g., OPEN_ACCESS) that can yield zero hits.
     """
     try:
-        # Limit page size to avoid excessively large queries
         page_size = max(1, min(max_results, 50))
-        search_query = f"({query}) AND (SRC:BIORXIV OR SRC:MEDRXIV)"
-        params = {"query": search_query, "format": "json", "pageSize": page_size}
 
-        logger.info(f"[EuropePMC] Fetching: {search_query}")
+        # Normalize user query to keep it loose enough
+        clean_query = query.replace("\n", " ").replace("\r", " ")
+        clean_query = re.sub(r"\d+\.", "", clean_query)
+        clean_query = " ".join(clean_query.split()).replace('"', "").replace("'", "")
+
+        # Primary + fallback queries
+        primary_query = f"({clean_query}) AND (SRC:BIORXIV OR SRC:MEDRXIV)"
+        queries = [primary_query, f"({clean_query})"]
+
+        results: List[Dict[str, Any]] = []
 
         async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.get(EUROPE_PMC_API_BASE_URL, params=params)
-            response.raise_for_status()
+            for idx, search_query in enumerate(queries):
+                params = {"query": search_query, "format": "json", "pageSize": page_size}
+                logger.info(f"[EuropePMC] Fetching (attempt {idx + 1}): {search_query}")
 
-        data = response.json()
-        results = data.get("resultList", {}).get("result", []) or []
+                response = await client.get(EUROPE_PMC_API_BASE_URL, params=params)
+                response.raise_for_status()
+
+                data = response.json()
+                results = data.get("resultList", {}).get("result", []) or []
+                if results:
+                    break  # Stop after first successful retrieval
 
         papers: List[Dict[str, Any]] = []
 
@@ -48,11 +58,8 @@ async def search_biorxiv(query: str, max_results: int = 15) -> List[Dict[str, An
                 doi = (entry.get("doi") or "").strip()
                 source = (entry.get("source") or "").strip().lower() or "biorxiv"
                 paper_id = (entry.get("id") or doi or "").strip()
-                published = (
-                    entry.get("firstPublicationDate")
-                    or entry.get("pubYear")
-                    or ""
-                )
+                arxiv_id = (entry.get("pmcid") or entry.get("acc_id") or "").strip()
+                published = entry.get("firstPublicationDate") or entry.get("pubYear") or ""
 
                 # Skip if we lack identifiers or title
                 if not title or not paper_id:
@@ -72,6 +79,7 @@ async def search_biorxiv(query: str, max_results: int = 15) -> List[Dict[str, An
                         "doi": doi or paper_id,
                         "preprint_id": paper_id,
                         "source": source,
+                        "arxiv_id": arxiv_id,
                         "authors": authors,
                         "published_date": published,
                         "pdf_url": pdf_url,
