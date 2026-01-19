@@ -3,8 +3,8 @@
  * 문서 관리 API 호출
  */
 
-import apiClient from './apiClient';
-import config from '../config/config';
+import apiClient from "./apiClient";
+import config from "../config/config";
 
 const documentService = {
   /**
@@ -15,36 +15,35 @@ const documentService = {
    * @param {number} sessionId - 세션 ID (선택)
    * @returns {Promise<Object>} - 업로드된 문서 정보
    */
-  async uploadDocument(file, title, description = '', sessionId = null) {
+  async uploadDocument(file, title, description = "", sessionId = null) {
     try {
       const formData = new FormData();
-      formData.append('file', file);
+      formData.append("file", file);
 
       // Query parameters로 전달
       const params = new URLSearchParams();
-      params.append('title', title);
+      params.append("title", title);
       if (description) {
-        params.append('description', description);
+        params.append("description", description);
       }
       if (sessionId) {
-        params.append('session_id', sessionId);
+        params.append("session_id", sessionId);
       }
 
       const endpoint = `${config.api.endpoints.documents.upload}?${params.toString()}`;
 
       // 직접 fetch 사용 (FormData는 Content-Type을 자동으로 설정해야 함)
-      const accessToken = localStorage.getItem('access_token');
+      const accessToken = localStorage.getItem("access_token");
       const headers = {};
-      
+
       if (accessToken) {
         headers.Authorization = `Bearer ${accessToken}`;
       }
       // Content-Type을 설정하지 않음 (FormData가 자동으로 multipart/form-data로 설정)
 
       const response = await fetch(`${config.api.apiUrl}${endpoint}`, {
-        method: 'POST',
+        method: "POST",
         headers: headers,
-        credentials: 'include',  // CORS 쿠키 포함
         body: formData,
       });
 
@@ -59,7 +58,7 @@ const documentService = {
 
       return await response.json();
     } catch (error) {
-      console.error('Document upload error:', error);
+      console.error("Document upload error:", error);
       throw error;
     }
   },
@@ -74,7 +73,7 @@ const documentService = {
   async getDocuments(limit = 50, offset = 0, sessionId = null) {
     try {
       let endpoint;
-      
+
       if (sessionId) {
         // 세션별 문서 조회
         endpoint = `${config.api.endpoints.documents.session}/${sessionId}?limit=${limit}&offset=${offset}`;
@@ -82,10 +81,10 @@ const documentService = {
         // 전체 문서 조회
         endpoint = `${config.api.endpoints.documents.list}?limit=${limit}&offset=${offset}`;
       }
-      
+
       return await apiClient.get(endpoint);
     } catch (error) {
-      console.error('Get documents error:', error);
+      console.error("Get documents error:", error);
       throw error;
     }
   },
@@ -100,7 +99,7 @@ const documentService = {
       const endpoint = config.api.endpoints.documents.get(documentId);
       return await apiClient.get(endpoint);
     } catch (error) {
-      console.error('Get document error:', error);
+      console.error("Get document error:", error);
       throw error;
     }
   },
@@ -115,7 +114,7 @@ const documentService = {
       const endpoint = config.api.endpoints.documents.delete(documentId);
       return await apiClient.delete(endpoint);
     } catch (error) {
-      console.error('Delete document error:', error);
+      console.error("Delete document error:", error);
       throw error;
     }
   },
@@ -127,9 +126,9 @@ const documentService = {
    */
   async getDownloadUrl(documentId) {
     try {
-      const accessToken = localStorage.getItem('access_token');
+      const accessToken = localStorage.getItem("access_token");
       const endpoint = config.api.endpoints.documents.download(documentId);
-      
+
       const headers = {};
       if (accessToken) {
         headers.Authorization = `Bearer ${accessToken}`;
@@ -137,7 +136,6 @@ const documentService = {
 
       const response = await fetch(`${config.api.apiUrl}${endpoint}`, {
         headers: headers,
-        credentials: 'include',
       });
 
       if (!response.ok) {
@@ -148,7 +146,7 @@ const documentService = {
       const blob = await response.blob();
       return URL.createObjectURL(blob);
     } catch (error) {
-      console.error('Download document error:', error);
+      console.error("Download document error:", error);
       throw error;
     }
   },

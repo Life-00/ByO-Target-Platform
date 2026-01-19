@@ -93,23 +93,24 @@ class AnalysisAgent(BaseAgent):
             logger.info(f"[AnalysisAgent] Analyzing: {request.content[:50]}...")
             logger.info(f"[AnalysisAgent] Selected documents: {len(request.selected_documents)}")
 
-            if not request.selected_documents:
-                return AnalysisAgentResponse(
-                    success=False,
-                    answer="",
-                    error="No documents selected for analysis"
-                )
-
-            # Step 1: Get document IDs
-            document_ids = [doc.get('id') for doc in request.selected_documents if doc.get('id')]
-            if not document_ids:
+            # Step 1: Get document IDs (allow empty for "search all documents" mode)
+            document_ids = []
+            if request.selected_documents:
+                document_ids = [doc.get('id') for doc in request.selected_documents if doc.get('id')]
+            
+            if request.selected_documents and not document_ids:
                 return AnalysisAgentResponse(
                     success=False,
                     answer="",
                     error="No valid document IDs found"
                 )
 
-            logger.info(f"[AnalysisAgent] Analyzing document IDs: {document_ids}")
+            if not document_ids and request.selected_documents:
+                logger.warning("[AnalysisAgent] Specific documents selected but no valid IDs found")
+            elif not document_ids:
+                logger.info("[AnalysisAgent] No documents specified - searching across all available documents")
+
+            logger.info(f"[AnalysisAgent] Analyzing document IDs: {document_ids if document_ids else 'ALL'}")
 
             # Step 2: Retrieve relevant chunks from ChromaDB + ReAct loop
             MAX_REACT_ATTEMPTS = 5  # 무한 루프 방지
@@ -117,6 +118,7 @@ class AnalysisAgent(BaseAgent):
             current_top_k = request.top_k
             relevant_chunks: List[Dict[str, Any]] = []
             last_gate_result = None
+            no_chunks_attempts = 0
 
             for attempt in range(MAX_REACT_ATTEMPTS):
                 logger.info(f"[AnalysisAgent][ReAct] Attempt {attempt + 1}")
@@ -124,12 +126,29 @@ class AnalysisAgent(BaseAgent):
                 relevant_chunks = await self._retrieve_relevant_chunks(
                     query=current_query,
                     document_ids=document_ids,
-                    top_k=current_top_k
+                    top_k=current_top_k,
+                    min_score=request.min_relevance_score
                 )
 
                 if not relevant_chunks:
-                    logger.info("[AnalysisAgent][ReAct] No chunks retrieved")
-                    break
+                    no_chunks_attempts += 1
+                    logger.info(f"[AnalysisAgent][ReAct] No chunks retrieved (attempt {no_chunks_attempts})")
+                    
+                    # Aggressively increase search scope if no results
+                    if no_chunks_attempts == 1:
+                        current_top_k = max(50, current_top_k * 3)
+                        logger.info(f"[AnalysisAgent][ReAct] Aggressive increase: top_k → {current_top_k}")
+                        continue
+                    elif no_chunks_attempts == 2:
+                        current_query = await self._rewrite_query_with_llm(
+                            request.content,
+                            ["검색 결과 없음 - 쿼리 재작성 필요"],
+                        )
+                        logger.info(f"[AnalysisAgent][ReAct] Rewriting query due to no results: {current_query}")
+                        continue
+                    else:
+                        # Give up and break after 2+ attempts
+                        break
 
                 evidence_items = [
                     EvidenceItem(
@@ -169,7 +188,11 @@ class AnalysisAgent(BaseAgent):
                     logger.info(f"[AnalysisAgent][ReAct] Increasing top_k from {old_top_k} to {current_top_k}")
 
                 elif gate_result.next_action == "rewrite_query":
-                    current_query = request.content  # 기본 유지 (향후 확장 가능)
+                    current_query = await self._rewrite_query_with_llm(
+                        request.content,
+                        gate_result.failure_reasons,
+                    )
+                    logger.info(f"[AnalysisAgent][ReAct] Query rewritten to: {current_query}")
 
                 elif gate_result.next_action == "ask_user_clarification":
                     # Try increasing top_k as an alternative to asking user
@@ -215,8 +238,11 @@ class AnalysisAgent(BaseAgent):
             )
 
 
-            # Step 5: Extract citations
-            citations = self._extract_citations(enriched_chunks)
+            # Step 5: Extract citations (use indices from answer or top chunks)
+            citations = self._extract_citations(
+                enriched_chunks,
+                getattr(self, '_last_used_indices', set(range(min(len(enriched_chunks), 3))))
+            )
 
             return AnalysisAgentResponse(
                 success=True,
@@ -243,7 +269,8 @@ class AnalysisAgent(BaseAgent):
         self,
         query: str,
         document_ids: List[int],
-        top_k: int
+        top_k: int,
+        min_score: float = 0.0
     ) -> List[Dict[str, Any]]:
         """
         Retrieve relevant chunks from ChromaDB for selected documents
@@ -262,21 +289,29 @@ class AnalysisAgent(BaseAgent):
             query_embedding = embed_result["embedding"]
             logger.info(f"[AnalysisAgent] Query embedding generated (dim={len(query_embedding)})")
 
-            # Query ChromaDB with larger result set to ensure we get hits from selected documents
+            # Normalize document_ids: convert all to integers for comparison
+            document_ids_int = set(int(doc_id) if isinstance(doc_id, str) else doc_id for doc_id in document_ids)
+            logger.info(f"[AnalysisAgent] Looking for documents: {document_ids_int}")
+
+            # Query ChromaDB with where filter for selected documents
             # ChromaDB returns results sorted by distance (semantic similarity)
+            where_filter = None
+            if document_ids_int:
+                # Build where filter to only search in selected documents
+                where_filter = {
+                    "document_id": {"$in": list(document_ids_int)}
+                }
+            
             results = collection.query(
                 query_embeddings=[query_embedding],
-                n_results=min(100, top_k * max(5, len(document_ids))),  # Get enough to filter
+                n_results=min(100, top_k * max(5, len(document_ids))),  # Get enough results
+                where=where_filter,
                 include=["documents", "metadatas", "distances", "embeddings"]
             )
 
             logger.info(f"[AnalysisAgent] ChromaDB returned {len(results['ids'][0])} results")
-
-            # Filter by document_ids and convert to chunk data
+            # Process results and convert to chunk data
             relevant_chunks = []
-            # Normalize document_ids: convert all to integers for comparison
-            document_ids_int = set(int(doc_id) if isinstance(doc_id, str) else doc_id for doc_id in document_ids)
-            logger.info(f"[AnalysisAgent] Looking for documents: {document_ids_int}")
             
             for i, chroma_id in enumerate(results["ids"][0]):
                 metadata = results["metadatas"][0][i]
@@ -284,14 +319,13 @@ class AnalysisAgent(BaseAgent):
                 # Normalize to integer for comparison
                 doc_id = int(doc_id_raw) if isinstance(doc_id_raw, str) else doc_id_raw
                 
-                logger.debug(f"[AnalysisAgent] Checking chunk {i}: doc_id={doc_id} (raw={doc_id_raw}), in_set={doc_id in document_ids_int}")
-                
-                # Check if document_id matches selected documents
-                if doc_id not in document_ids_int:
-                    continue
-                
                 distance = results["distances"][0][i]
                 relevance_score = 1.0 / (1.0 + distance)  # Convert L2 distance to similarity score
+                
+                # Very relaxed minimum score threshold - allow more results through
+                # We'll filter quality in the ReAct gate
+                if relevance_score < 0.3:  # Only filter truly low-relevance results
+                    continue
                 
                 chunk_data = {
                     "chroma_id": chroma_id,
@@ -321,6 +355,37 @@ class AnalysisAgent(BaseAgent):
             logger.error(traceback.format_exc())
             logger.warning("[AnalysisAgent] Falling back to PostgreSQL keyword matching")
             return await self._retrieve_from_postgresql(query, document_ids, top_k)
+
+    async def _rewrite_query_with_llm(
+        self,
+        original_query: str,
+        failure_reasons: List[str],
+    ) -> str:
+        """
+        Rewrite user query to improve semantic search retrieval
+        Uses LLM to generate more specific search query based on failure reasons
+        """
+        try:
+            prompt = f"""당신은 정보 검색 전문가입니다.
+
+원래 질문: {original_query}
+검색 실패 사유: {', '.join(failure_reasons) if failure_reasons else '관련 자료 없음'}
+
+위의 실패 사유를 고려하여 원래 질문을 더 구체적이고
+검색 엔진이 이해하기 쉽도록 한 문장으로 다시 작성하세요.
+다시 작성한 질문만 출력하세요."""
+            
+            response = await self.llm_service.generate(
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.2,
+                max_tokens=128,
+            )
+            rewritten = response.get("content", original_query).strip()
+            return rewritten if rewritten else original_query
+            
+        except Exception as e:
+            logger.warning(f"[AnalysisAgent] Query rewriting failed: {str(e)}, using original")
+            return original_query
 
     async def _retrieve_from_postgresql(
         self,
@@ -503,6 +568,17 @@ class AnalysisAgent(BaseAgent):
 
             answer = response["content"]
             tokens_used = response["usage"]["total_tokens"]
+            
+            # Extract citation indices from answer (e.g., [1], [2], [3])
+            import re
+            used_indices = set()
+            for match in re.finditer(r'\[(\d+)\]', answer):
+                idx = int(match.group(1)) - 1  # Convert to 0-based index
+                if 0 <= idx < len(chunks):
+                    used_indices.add(idx)
+            
+            # Store indices for citation extraction
+            self._last_used_indices = used_indices if used_indices else set(range(min(len(chunks), 3)))
 
             return answer, tokens_used
 
@@ -510,12 +586,20 @@ class AnalysisAgent(BaseAgent):
             logger.error(f"[AnalysisAgent] Answer generation failed: {str(e)}")
             return f"답변 생성 중 오류가 발생했습니다: {str(e)}", 0
 
-    def _extract_citations(self, chunks: List[Dict[str, Any]]) -> List[CitationInfo]:
+    def _extract_citations(self, chunks: List[Dict[str, Any]], used_indices: set = None) -> List[CitationInfo]:
         """
         Extract citation information from chunks
+        Only include citations for chunks referenced in used_indices
         """
+        if used_indices is None:
+            used_indices = set(range(len(chunks)))
+        
         citations = []
-        for chunk in chunks:
+        for idx, chunk in enumerate(chunks):
+            # Skip if this chunk index was not used in the answer
+            if idx not in used_indices:
+                continue
+            
             try:
                 doc_id = (
                         chunk.get("document_id")

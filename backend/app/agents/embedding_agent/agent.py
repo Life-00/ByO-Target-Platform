@@ -197,53 +197,54 @@ class EmbeddingAgent(BaseAgent):
 
         summary = await self._generate_summary(full_text)
 
-        try:
-            db_chunks = []
-            for idx, record in enumerate(chunk_records):
-                db_chunk = DocumentChunk(
-                    document_id=document_id,
-                    chunk_index=idx,
-                    page_number=1,  # TEMP: page mapping not implemented
-                    text_content=record["text"],
-                    char_count=len(record["text"]),
-                    chroma_id=str(uuid.uuid4()),
-                    embedding_model=self.embedding_service.model,
-                )
-                self.db.add(db_chunk)
-                db_chunks.append(db_chunk)
-
-            await self.db.flush()
-
-            await self.embedding_service.add_documents(
-                ids=[c.chroma_id for c in db_chunks],
-                embeddings=embeddings,
-                documents=texts,
-                metadatas=[
-                    {
-                        "document_id": document_id,
-                        "chunk_index": c.chunk_index,
-                        "section_title": r["section_title"],
-                        "char_count": c.char_count,
-                    }
-                    for c, r in zip(db_chunks, chunk_records)
-                ],
+        db_chunks = []
+        for idx, record in enumerate(chunk_records):
+            db_chunk = DocumentChunk(
+                document_id=document_id,
+                chunk_index=idx,
+                page_number=1,  # TEMP: page mapping not implemented
+                text_content=record["text"],
+                char_count=len(record["text"]),
+                chroma_id=str(uuid.uuid4()),
+                embedding_model=self.embedding_service.model,
             )
+            self.db.add(db_chunk)
+            db_chunks.append(db_chunk)
 
-            result = await self.db.execute(
-                select(Document).where(Document.id == document_id)
+        await self.db.flush()
+
+        await self.embedding_service.add_documents(
+            ids=[c.chroma_id for c in db_chunks],
+            embeddings=embeddings,
+            documents=texts,
+            metadatas=[
+                {
+                    "document_id": document_id,
+                    "chunk_index": c.chunk_index,
+                    "section_title": r["section_title"],
+                    "char_count": c.char_count,
+                }
+                for c, r in zip(db_chunks, chunk_records)
+            ],
+        )
+
+        result = await self.db.execute(
+            select(Document).where(Document.id == document_id)
+        )
+        document = result.scalar_one_or_none()
+
+        if document:
+            document.is_indexed = True
+            document.page_count = len(page_texts)
+            document.summary = summary
+            # Track whether section split used LLM or fallback
+            section_split_used_fallback = (
+                len(sections) == 1 and sections[0]["section_title"] == "Full Document"
             )
-            document = result.scalar_one_or_none()
-
-            if document:
-                document.is_indexed = True
-                document.page_count = len(page_texts)
-                document.summary = summary
-
+            document.section_split_confidence = (
+                "fallback" if section_split_used_fallback else "llm"
+            )
             await self.db.commit()
-
-        except Exception:
-            await self.db.rollback()
-            raise
 
         return {
             "status": "success",

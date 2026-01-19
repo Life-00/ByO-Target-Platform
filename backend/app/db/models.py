@@ -119,6 +119,7 @@ class Document(Base):
     mime_type = Column(String(50), default="application/pdf", nullable=False)
     is_indexed = Column(Boolean, default=False, nullable=False)  # Whether text extracted
     indexed_at = Column(DateTime, nullable=True)
+    section_split_confidence = Column(String(50), default="unknown", nullable=False)  # "llm" or "fallback"
     
     # ✅ PDF Metadata (새로 추가)
     keywords = Column(JSON, nullable=True)  # ["CRISPR", "gene-editing"]
