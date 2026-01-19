@@ -277,6 +277,13 @@ class AnalysisAgent(BaseAgent):
             logger.error(f"[AnalysisAgent] Chunk retrieval failed: {str(e)}")
             return []
 
+    def _get_document_id(self, chunk: Dict[str, Any]) -> Optional[int]:
+        return (
+                chunk.get("document_id")
+                or chunk.get("metadata", {}).get("document_id")
+        )
+
+
     async def _enrich_chunks_with_metadata(
         self,
         chunks: List[Dict[str, Any]]
@@ -286,7 +293,16 @@ class AnalysisAgent(BaseAgent):
         """
         try:
             # Get unique document IDs
-            doc_ids = list(set(chunk["document_id"] for chunk in chunks))
+            doc_ids = list(
+                set(
+                    self._get_document_id(chunk)
+                    for chunk in chunks
+                    if self._get_document_id(chunk) is not None
+                )
+            )
+
+            if not doc_ids:
+                return chunks
 
             # Fetch document metadata
             result = await self.db.execute(
@@ -297,16 +313,19 @@ class AnalysisAgent(BaseAgent):
             # Enrich each chunk
             enriched = []
             for chunk in chunks:
-                doc_id = chunk["document_id"]
+                doc_id = self._get_document_id(chunk)
+                base = {
+                    **chunk,
+                    "document_id": doc_id,   # 🔥 여기서 top-level로 승격
+                }
+
                 if doc_id in documents:
                     doc = documents[doc_id]
-                    enriched.append({
-                        **chunk,
+                    base.update({
                         "document_title": doc.title,
-                        "document_filename": doc.file_name
+                        "document_filename": doc.file_name,
                     })
-                else:
-                    enriched.append(chunk)
+                enriched.append(chunk)
 
             return enriched
 
@@ -368,8 +387,16 @@ class AnalysisAgent(BaseAgent):
         citations = []
         for chunk in chunks:
             try:
+                doc_id = (
+                        chunk.get("document_id")
+                        or chunk.get("metadata", {}).get("document_id")
+                )
+
+                if doc_id is None:
+                    raise KeyError("document_id")
+
                 citation = CitationInfo(
-                    document_id=chunk["document_id"],
+                    document_id=doc_id,
                     document_title=chunk.get("document_title", "Unknown"),
                     page_number=chunk.get("page_number", 0),
                     chunk_index=chunk.get("chunk_index", 0),
