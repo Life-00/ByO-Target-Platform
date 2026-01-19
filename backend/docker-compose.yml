@@ -1,4 +1,4 @@
-version: '3.9'
+version: "3.9"
 
 services:
   # PostgreSQL Database
@@ -34,7 +34,13 @@ services:
     volumes:
       - chroma_data:/chroma_data
     healthcheck:
-      test: ["CMD", "bash", "-c", "curl -f http://localhost:8000/api/v1/heartbeat || exit 0"]
+      test:
+        [
+          "CMD",
+          "bash",
+          "-c",
+          "curl -f http://localhost:8000/api/v1/heartbeat || exit 0",
+        ]
       interval: 15s
       timeout: 10s
       retries: 5
@@ -70,30 +76,30 @@ services:
       DB_USER: ${DB_USER:-tva}
       DB_PASSWORD: ${DB_PASSWORD:-tva_password}
       DB_NAME: ${DB_NAME:-tva_db}
-      
+
       # ChromaDB
       CHROMADB_HOST: chromadb
       CHROMADB_PORT: 8000
       CHROMA_DB_PATH: /chroma_data
-      
+
       # APIs
       UPSTAGE_API_KEY: ${UPSTAGE_API_KEY}
-      
+
       # JWT
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-tva-backend-secret-key-change-in-production}
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
       REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-7}
-      
+
       # CORS
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
-      
+
       # LLM Settings
       LLM_MODEL: ${LLM_MODEL:-upstage-solar-pro}
       LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.3}
       LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-2000}
       LLM_TOP_P: ${LLM_TOP_P:-0.9}
-      
+
       # Server
       ENVIRONMENT: ${ENVIRONMENT:-development}
       DEBUG: ${DEBUG:-true}
@@ -122,4 +128,3 @@ volumes:
 networks:
   tva-network:
     driver: bridge
-
