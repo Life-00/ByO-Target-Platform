@@ -286,6 +286,7 @@ const ChatPanel = ({
             recommendations: response.report.recommendations,
             limitations: response.report.limitations,
             relatedPapers: response.report.related_papers,
+            visualizations: response.metadata?.visualizations || {}, // 시각화 HTML 포함
           };
 
           addReport(reportItem);

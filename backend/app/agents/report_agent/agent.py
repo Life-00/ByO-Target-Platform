@@ -332,38 +332,30 @@ class ReportAgent(BaseAgent):
         try:
             logger.info(f"[ReportAgent] Executing VISUALIZATION intent")
 
-            visualizations = {}
-            viz_type = "network" if request.include_network_graph else "feasibility"
+            # Create a minimal report from request data
+            final_report = ResearchReport(
+                title=f"시각화: {request.research_topic}",
+                research_topic=request.research_topic,
+                validation=ResearchValidation(
+                    is_feasible=True,
+                    feasibility_score=75,
+                    reasoning="시각화 생성"
+                ),
+                sections=[],
+                evidence_summary="",
+                recommendations=[],
+                limitations=[],
+                related_papers=request.research_data.related_documents or []
+            )
 
-            if viz_type == "network":
-                logger.info(f"[ReportAgent] Creating network visualization")
-                # TODO: Create network graph from research_data.related_documents
-                visualizations["network_graph"] = "Network graph placeholder"
-            else:
-                logger.info(f"[ReportAgent] Creating feasibility chart")
-                # TODO: Create feasibility chart
-                visualizations["feasibility_chart"] = "Feasibility chart placeholder"
-
-            logger.info(f"[ReportAgent] Visualization created: {viz_type}")
+            # Generate visualizations
+            visualizations = await Visualizer.create_all_visualizations(final_report)
+            logger.info(f"[ReportAgent] Visualizations created successfully")
 
             return ReportAgentResponse(
-                report=ResearchReport(
-                    title="시각화",
-                    research_topic=request.research_topic,
-                    validation=ResearchValidation(
-                        is_feasible=True,
-                        feasibility_score=100,
-                        reasoning="시각화 생성 완료"
-                    ),
-                    sections=[],
-                    evidence_summary="",
-                    recommendations=[],
-                    limitations=[],
-                    related_papers=[]
-                ),
+                report=final_report,
                 metadata={
                     "intent": "visualization",
-                    "visualization_type": viz_type,
                     "visualizations": visualizations,
                 },
                 tokens_used=0,

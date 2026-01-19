@@ -38,26 +38,38 @@ const PDFToolbar = ({
 
       <div className="flex items-center gap-2">
         {/* View Mode Toggle */}
-        <div className="flex items-center bg-gray-100 rounded-lg p-1 mr-2">
-          <button
-            onClick={() => onViewModeChange('text')}
-            className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors
-              ${viewMode === 'text' ? 'bg-white text-teal-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-            title="원본 텍스트(PDF)"
-          >
-            <FileType size={14} />
-            <span>Text</span>
-          </button>
-          <button
-            onClick={() => onViewModeChange('summary')}
-            className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors
-              ${viewMode === 'summary' ? 'bg-white text-teal-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-            title="요약 및 분석"
-          >
-            <List size={14} />
-            <span>Summary</span>
-          </button>
-        </div>
+        {!isReport && (
+          <div className="flex items-center bg-gray-100 rounded-lg p-1 mr-2">
+            <button
+              onClick={() => onViewModeChange('text')}
+              className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors
+                ${viewMode === 'text' ? 'bg-white text-teal-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              title="원본 텍스트(PDF)"
+            >
+              <FileType size={14} />
+              <span>Text</span>
+            </button>
+            <button
+              onClick={() => onViewModeChange('summary')}
+              className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors
+                ${viewMode === 'summary' ? 'bg-white text-teal-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              title="요약 및 분석"
+            >
+              <List size={14} />
+              <span>Summary</span>
+            </button>
+          </div>
+        )}
+        
+        {/* Report Tab Label */}
+        {isReport && (
+          <div className="flex items-center bg-gray-100 rounded-lg p-1 mr-2 px-3">
+            <span className="flex items-center gap-1 text-xs font-medium text-indigo-700">
+              <List size={14} />
+              <span>Report</span>
+            </span>
+          </div>
+        )}
 
         {/* Zoom Controls */}
         {viewMode === 'summary' && (

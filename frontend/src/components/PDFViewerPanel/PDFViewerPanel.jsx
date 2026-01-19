@@ -24,6 +24,9 @@ const PDFViewerPanel = ({
   }
 
   const isReport = paper.type === 'report';
+  
+  // Report일 때는 무조건 summary 모드
+  const displayMode = isReport ? 'summary' : viewMode;
 
   return (
     <div className="flex-1 flex flex-col h-full min-w-0 bg-gray-100 relative">
@@ -42,7 +45,7 @@ const PDFViewerPanel = ({
 
       {/* Main Content Area */}
       <div className="flex-1 overflow-hidden relative bg-gray-200">
-        {viewMode === 'text' ? (
+        {displayMode === 'text' && !isReport ? (
           <PDFViewer paper={paper} pdfUrl={paper.pdfUrl} />
         ) : (
           <SummaryViewer paper={paper} isReport={isReport} zoomLevel={zoomLevel} />

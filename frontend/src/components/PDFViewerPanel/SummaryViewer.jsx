@@ -79,6 +79,63 @@ const SummaryViewer = ({ paper, isReport, zoomLevel }) => {
                 </div>
               )}
 
+              {/* 시각화 */}
+              {paper.visualizations && Object.keys(paper.visualizations).length > 0 && (
+                <div className="mb-6 space-y-6">
+                  <h3 className="font-bold text-base mb-3 border-b pb-2">
+                    📊 시각화
+                  </h3>
+                  
+                  {/* Evidence Network */}
+                  {paper.visualizations.evidence_network && (
+                    <div className="border rounded-lg overflow-hidden">
+                      <h4 className="font-semibold text-sm bg-gray-50 p-3">
+                        연구 증거 네트워크
+                      </h4>
+                      <div className="w-full h-96">
+                        <iframe
+                          srcDoc={paper.visualizations.evidence_network}
+                          style={{ width: "100%", height: "100%", border: "none" }}
+                          title="evidence-network"
+                        />
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Feasibility Chart */}
+                  {paper.visualizations.feasibility_chart && (
+                    <div className="border rounded-lg overflow-hidden">
+                      <h4 className="font-semibold text-sm bg-gray-50 p-3">
+                        타당성 평가 차트
+                      </h4>
+                      <div className="w-full h-96">
+                        <iframe
+                          srcDoc={paper.visualizations.feasibility_chart}
+                          style={{ width: "100%", height: "100%", border: "none" }}
+                          title="feasibility-chart"
+                        />
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Paper Distribution */}
+                  {paper.visualizations.paper_distribution && (
+                    <div className="border rounded-lg overflow-hidden">
+                      <h4 className="font-semibold text-sm bg-gray-50 p-3">
+                        논문 분포
+                      </h4>
+                      <div className="w-full h-96">
+                        <iframe
+                          srcDoc={paper.visualizations.paper_distribution}
+                          style={{ width: "100%", height: "100%", border: "none" }}
+                          title="paper-distribution"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* 권장사항 */}
               {paper.recommendations && paper.recommendations.length > 0 && (
                 <div className="mb-6">
