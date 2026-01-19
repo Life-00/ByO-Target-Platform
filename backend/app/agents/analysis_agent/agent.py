@@ -75,16 +75,156 @@ class AnalysisAgent(BaseAgent):
                 self.collection = None
         return self.collection
 
+    # -------------------------------------------------
+    # Retrieval
+    # -------------------------------------------------
+    async def _retrieve_relevant_chunks(
+            self,
+            query: str,
+            document_ids: List[int],
+            top_k: int,
+            min_score: float,
+    ) -> List[Dict[str, Any]]:
+
+        collection = self._get_chroma_collection()
+
+        if collection is None:
+            self.logger.warning(
+                "[AnalysisAgent] No ChromaDB collection, skip retrieval"
+            )
+            return []
+
+        embedding = (await self.embedding_service.embed(query))["embedding"]
+
+        results = collection.query(
+            query_embeddings=[embedding],
+            n_results=top_k * len(document_ids),
+            include=["documents", "metadatas", "distances"],
+        )
+
+        chunks = []
+        for i, meta in enumerate(results["metadatas"][0]):
+            if meta.get("document_id") in document_ids:
+                score = 1 / (1 + results["distances"][0][i])
+                if score < min_score:  # 🔧 [MODIFIED]
+                    continue
+
+                chunks.append({
+                    "text": results["documents"][0][i],
+                    "document_id": meta["document_id"],
+                    "chunk_index": meta.get("chunk_index"),
+                    "page_number": meta.get("page_number"),
+                    "section_title": meta.get("section_title"),
+                    "relevance_score": score,
+                })
+
+        chunks.sort(key=lambda x: x["relevance_score"], reverse=True)
+        return chunks[:top_k]
+
+    # -------------------------------------------------
+    # Query Rewrite
+    # -------------------------------------------------
+    async def _rewrite_query_with_llm(
+            self,
+            original_query: str,
+            failure_reasons: List[str],
+    ) -> str:
+        prompt = f"""
+        기존 질문: {original_query}
+        검색 실패 사유: {failure_reasons}
+
+        문서 근거를 더 잘 찾을 수 있도록
+        질문을 더 구체적으로 한 문장으로 재작성하라.
+        """
+
+        response = await self.llm_service.generate(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+            max_tokens=128,
+        )
+        return response["content"].strip()
+
+    # -------------------------------------------------
+    # Metadata Enrichment
+    # -------------------------------------------------
+    async def _enrich_chunks_with_metadata(self, chunks):
+        doc_ids = {c["document_id"] for c in chunks}
+        result = await self.db.execute(
+            select(Document).where(Document.id.in_(doc_ids))
+        )
+        docs = {d.id: d for d in result.scalars().all()}
+
+        enriched = []
+        for c in chunks:
+            base = dict(c)
+            doc = docs.get(c["document_id"])
+            if doc:
+                base["document_title"] = doc.title
+                base["document_filename"] = doc.file_name
+            enriched.append(base)  # 🔧 [MODIFIED: 버그 수정]
+
+        return enriched
+
+    # -------------------------------------------------
+    # Answer Generation
+    # -------------------------------------------------
+    async def _generate_answer(self, question, goal, chunks):
+        context = []
+        for i, c in enumerate(chunks, 1):
+            doc_title = c.get("document_title") or f"Document {c.get('document_id')}"
+            page = c.get("page_number", "N/A")
+
+            context.append(
+                f"[{i}] {doc_title} p.{page}\n{c['text']}"
+            )
+
+        prompt = ANALYSIS_PROMPT.format(
+            analysis_goal=goal or "일반 분석",
+            question=question,
+            context_chunks="\n---\n".join(context),
+        )
+
+        response = await self.llm_service.generate(
+            messages=[{"role": "user", "content": prompt}],
+            system_prompt=self.system_prompt,
+            temperature=DEFAULT_TEMPERATURE,
+            max_tokens=DEFAULT_MAX_TOKENS,
+        )
+
+        # citation index 추출
+        used_indices = {
+            int(i) - 1
+            for i in __import__("re").findall(r"\[(\d+)\]", response["content"])
+        }
+
+        return response["content"], response["usage"]["total_tokens"], used_indices
+
+    # -------------------------------------------------
+    # Citation (답변 출처 구조화)
+    # -------------------------------------------------
+    def _extract_citations(self, chunks, used_indices):
+        citations = []
+        for idx in used_indices:
+            c = chunks[idx]
+
+            doc_title = c.get("document_title") or f"Document {c.get('document_id')}"
+            page = c.get("page_number", None)
+
+            citations.append(
+                CitationInfo(
+                    document_id=c["document_id"],
+                    document_title=doc_title,
+                    page_number=page,
+                    chunk_index=c.get("chunk_index"),
+                    text_excerpt=c["text"][:200],
+                    relevance_score=c.get("relevance_score"),
+                )
+            )
+        return citations
+
+
     async def execute(self, request: AnalysisAgentRequest) -> AnalysisAgentResponse:
-        """
-        Execute analysis workflow
-        
-        Args:
-            request: AnalysisAgentRequest with question and selected documents
-            
-        Returns:
-            AnalysisAgentResponse with answer and citations
-        """
+
         try:
             logger.info(f"[AnalysisAgent] Analyzing: {request.content[:50]}...")
             logger.info(f"[AnalysisAgent] Selected documents: {len(request.selected_documents)}")
@@ -117,10 +257,12 @@ class AnalysisAgent(BaseAgent):
             for attempt in range(MAX_REACT_ATTEMPTS):
                 logger.info(f"[AnalysisAgent][ReAct] Attempt {attempt + 1}")
 
+                # 1. Retrieve
                 relevant_chunks = await self._retrieve_relevant_chunks(
                     query=current_query,
                     document_ids=document_ids,
-                    top_k=current_top_k
+                    top_k=current_top_k,
+                    min_score=request.min_relevance_score,
                 )
 
                 if not relevant_chunks:
@@ -132,14 +274,14 @@ class AnalysisAgent(BaseAgent):
                         content=chunk["text"],
                         metadata={
                             "document_id": chunk.get("document_id"),
-                            "document_title": chunk.get("document_title"),
+                            "section_title": chunk.get("section_title"),
                             "page_number": chunk.get("page_number"),
-                            "section_type": chunk.get("section_type"),
                         }
                     )
                     for chunk in relevant_chunks
                 ]
 
+                # 2. ReAct Gate
                 gate_result = await react_quality_gate(
                     task_goal=request.analysis_goal or "RAG-based document analysis",
                     query=request.content,
@@ -158,35 +300,31 @@ class AnalysisAgent(BaseAgent):
                     f"{gate_result.failure_reasons}, next={gate_result.next_action}"
                 )
 
-                # 🔹 Act 단계 (상태 변화 필수)
+                # Act
                 if gate_result.next_action == "increase_top_k":
                     current_top_k += gate_result.action_params.get("top_k_delta", 5)
 
                 elif gate_result.next_action == "rewrite_query":
-                    current_query = request.content  # 기본 유지 (향후 확장 가능)
+                    current_query = await self._rewrite_query_with_llm(
+                        request.content,
+                        gate_result.failure_reasons,
+                    )
 
                 elif gate_result.next_action == "stop":
                     break
 
-                else:
-                    break
-
-            # 🔒 ReAct 최종 실패 → 답변 생성 차단
+            # ReAct 최종 실패 → 답변 생성 차단
             if not relevant_chunks or not last_gate_result or not last_gate_result.accept:
                 return AnalysisAgentResponse(
                     success=True,
-                    answer=(
-                        "선택된 문서만으로는 현재 질문에 답하기에 "
-                        "근거가 충분하지 않습니다.\n\n"
-                        f"사유: {', '.join(last_gate_result.failure_reasons) if last_gate_result else '근거 부족'}"
-                    ),
+                    answer="선택된 문서에서 질문에 답할 충분한 근거를 찾지 못했습니다.\n\n",
                     citations=[],
-                    documents_analyzed=len(document_ids),
-                    chunks_retrieved=len(relevant_chunks),
+                    # documents_analyzed=len(document_ids),
+                    # chunks_retrieved=len(relevant_chunks),
                     metadata={
                         "react_attempts": attempt + 1,
-                        "react_confidence": last_gate_result.confidence if last_gate_result else None,
-                        "react_rationale": last_gate_result.rationale if last_gate_result else None,
+                        "react_confidence": getattr(last_gate_result, "confidence", None),
+                        "react_rationale": getattr(last_gate_result, "rationale", None),
                     }
                 )
 
@@ -196,26 +334,32 @@ class AnalysisAgent(BaseAgent):
 
 
             # Step 4: Generate answer using LLM (gate 통과 시만)
-            answer, tokens_used = await self._generate_answer(
-                question=request.content,
-                analysis_goal=request.analysis_goal,
-                chunks=enriched_chunks
+            answer, tokens_used, used_indices = await self._generate_answer(
+                request.content,
+                request.analysis_goal,
+                enriched_chunks,
             )
 
+            # citation fallback
+            if not used_indices:
+                logger.info(
+                    "[AnalysisAgent] No explicit citation indices found, "
+                    "fallback to top-ranked chunks"
+                )
+                used_indices = set(range(min(len(enriched_chunks), request.top_k)))
 
-            # Step 5: Extract citations
-            citations = self._extract_citations(enriched_chunks)
+            citations = self._extract_citations(enriched_chunks, used_indices)
 
             return AnalysisAgentResponse(
                 success=True,
                 answer=answer,
                 citations=citations,
                 documents_analyzed=len(document_ids),
-                chunks_retrieved=len(relevant_chunks),
+                chunks_retrieved=len(enriched_chunks),
                 tokens_used=tokens_used,
                 metadata={
+                    "react_attempts": attempt + 1,
                     "timestamp": datetime.now().isoformat(),
-                    "analysis_goal": request.analysis_goal
                 }
             )
 
@@ -223,189 +367,7 @@ class AnalysisAgent(BaseAgent):
             logger.error(f"[AnalysisAgent] Error: {str(e)}")
             return AnalysisAgentResponse(
                 success=False,
-                answer="",
+                answer="분석 중 오류가 발생했습니다.",
                 error=str(e)
             )
 
-    async def _retrieve_relevant_chunks(
-        self,
-        query: str,
-        document_ids: List[int],
-        top_k: int
-    ) -> List[Dict[str, Any]]:
-        """
-        Retrieve relevant chunks from ChromaDB for selected documents
-        """
-        try:
-            collection = self._get_chroma_collection()
-            if not collection:
-                raise Exception("ChromaDB collection not available")
-
-            # Generate query embedding
-            embed_result = await self.embedding_service.embed(query, use_cache=True)
-            query_embedding = embed_result["embedding"]
-
-            # Query ChromaDB with document_id filter
-            # Get more results since we'll filter by document_ids
-            results = collection.query(
-                query_embeddings=[query_embedding],
-                n_results=top_k * len(document_ids),  # Get enough for all documents
-                include=["documents", "metadatas", "distances"]
-            )
-
-            # Filter and sort by document_ids
-            relevant_chunks = []
-            for i, metadata in enumerate(results["metadatas"][0]):
-                doc_id = metadata.get("document_id")
-                if doc_id in document_ids:
-                    chunk_data = {
-                        "chroma_id": results["ids"][0][i],
-                        "document_id": doc_id,
-                        "chunk_index": metadata.get("chunk_index"),
-                        "page_number": metadata.get("page_number"),
-                        "text": results["documents"][0][i],
-                        "distance": results["distances"][0][i],
-                        "relevance_score": 1.0 / (1.0 + results["distances"][0][i])  # Convert distance to score
-                    }
-                    relevant_chunks.append(chunk_data)
-
-            # Sort by relevance and limit to top_k
-            relevant_chunks.sort(key=lambda x: x["relevance_score"], reverse=True)
-            return relevant_chunks[:top_k]
-
-        except Exception as e:
-            logger.error(f"[AnalysisAgent] Chunk retrieval failed: {str(e)}")
-            return []
-
-    def _get_document_id(self, chunk: Dict[str, Any]) -> Optional[int]:
-        return (
-                chunk.get("document_id")
-                or chunk.get("metadata", {}).get("document_id")
-        )
-
-
-    async def _enrich_chunks_with_metadata(
-        self,
-        chunks: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
-        """
-        Enrich chunks with document metadata from PostgreSQL
-        """
-        try:
-            # Get unique document IDs
-            doc_ids = list(
-                set(
-                    self._get_document_id(chunk)
-                    for chunk in chunks
-                    if self._get_document_id(chunk) is not None
-                )
-            )
-
-            if not doc_ids:
-                return chunks
-
-            # Fetch document metadata
-            result = await self.db.execute(
-                select(Document).where(Document.id.in_(doc_ids))
-            )
-            documents = {doc.id: doc for doc in result.scalars().all()}
-
-            # Enrich each chunk
-            enriched = []
-            for chunk in chunks:
-                doc_id = self._get_document_id(chunk)
-                base = {
-                    **chunk,
-                    "document_id": doc_id,   # 🔥 여기서 top-level로 승격
-                }
-
-                if doc_id in documents:
-                    doc = documents[doc_id]
-                    base.update({
-                        "document_title": doc.title,
-                        "document_filename": doc.file_name,
-                    })
-                enriched.append(chunk)
-
-            return enriched
-
-        except Exception as e:
-            logger.error(f"[AnalysisAgent] Metadata enrichment failed: {str(e)}")
-            return chunks
-
-    async def _generate_answer(
-        self,
-        question: str,
-        analysis_goal: Optional[str],
-        chunks: List[Dict[str, Any]]
-    ) -> tuple[str, int]:
-        """
-        Generate answer using LLM with retrieved chunks as context
-        """
-        try:
-            # Format context chunks
-            context_parts = []
-            for i, chunk in enumerate(chunks, 1):
-                doc_title = chunk.get("document_title", "Unknown Document")
-                page_num = chunk.get("page_number", "?")
-                text = chunk.get("text", "")
-                
-                context_parts.append(
-                    f"[{i}] 문서: {doc_title}, 페이지: {page_num}\n{text}\n"
-                )
-
-            context_text = "\n---\n".join(context_parts)
-
-            # Build prompt
-            user_prompt = ANALYSIS_PROMPT.format(
-                analysis_goal=analysis_goal or "일반 분석",
-                question=question,
-                context_chunks=context_text
-            )
-
-            # Call LLM
-            response = await self.llm_service.generate(
-                messages=[{"role": "user", "content": user_prompt}],
-                system_prompt=self.system_prompt,
-                temperature=DEFAULT_TEMPERATURE,
-                max_tokens=DEFAULT_MAX_TOKENS
-            )
-
-            answer = response["content"]
-            tokens_used = response["usage"]["total_tokens"]
-
-            return answer, tokens_used
-
-        except Exception as e:
-            logger.error(f"[AnalysisAgent] Answer generation failed: {str(e)}")
-            return f"답변 생성 중 오류가 발생했습니다: {str(e)}", 0
-
-    def _extract_citations(self, chunks: List[Dict[str, Any]]) -> List[CitationInfo]:
-        """
-        Extract citation information from chunks
-        """
-        citations = []
-        for chunk in chunks:
-            try:
-                doc_id = (
-                        chunk.get("document_id")
-                        or chunk.get("metadata", {}).get("document_id")
-                )
-
-                if doc_id is None:
-                    raise KeyError("document_id")
-
-                citation = CitationInfo(
-                    document_id=doc_id,
-                    document_title=chunk.get("document_title", "Unknown"),
-                    page_number=chunk.get("page_number", 0),
-                    chunk_index=chunk.get("chunk_index", 0),
-                    text_excerpt=chunk["text"][:200] + "..." if len(chunk["text"]) > 200 else chunk["text"],
-                    relevance_score=chunk.get("relevance_score", 0.0)
-                )
-                citations.append(citation)
-            except Exception as e:
-                logger.warning(f"[AnalysisAgent] Failed to create citation: {str(e)}")
-                continue
-
-        return citations

@@ -570,6 +570,10 @@ class EmbeddingAgent(BaseAgent):
         if not sections:
             raise ValueError("No sections generated")
 
+        section_split_used_fallback = (
+                len(sections) == 1 and sections[0]["section_title"] == "Unknown"
+        )
+
         chunk_records = []
         for section_idx, section in enumerate(sections):
             chunks = await self.chunk_text(section["text"], max_tokens)
@@ -633,6 +637,11 @@ class EmbeddingAgent(BaseAgent):
                 document.is_indexed = True
                 document.page_count = len(page_texts)
                 document.summary = summary
+
+                # 섹션 분해 신뢰도 기록
+                document.section_split_confidence = (
+                    "fallback" if section_split_used_fallback else "llm"
+                )
 
             await self.db.commit()
 
