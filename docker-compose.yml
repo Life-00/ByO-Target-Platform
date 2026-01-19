@@ -48,26 +48,10 @@ services:
     networks:
       - tva-network
 
-  # Redis Cache (선택사항 - 비활성화)
-  # redis:
-  #   image: redis:7-alpine
-  #   container_name: tva-redis
-  #   ports:
-  #     - "6379:6379"
-  #   volumes:
-  #     - redis_data:/data
-  #   healthcheck:
-  #     test: ["CMD", "redis-cli", "ping"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 5
-  #   networks:
-  #     - tva-network
-
   # FastAPI Backend
   backend:
     build:
-      context: .
+      context: ./backend
       dockerfile: Dockerfile
     container_name: tva-backend
     environment:
@@ -112,10 +96,39 @@ services:
       chromadb:
         condition: service_healthy
     volumes:
-      - ./app:/app/app
-      - ./tests:/app/tests
-      - ./uploads:/app/uploads
+      - ./backend/app:/app/app
+      - ./backend/tests:/app/tests
+      - ./backend/uploads:/app/uploads
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - tva-network
+
+  # Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: tva-frontend
+    ports:
+      - "3000:5173"
+    environment:
+      - VITE_API_BASE_URL=${VITE_API_BASE_URL:-http://localhost:8001}
+      - VITE_API_VERSION=${VITE_API_VERSION:-v1}
+      - VITE_APP_NAME=${VITE_APP_NAME:-TVA}
+      - VITE_APP_DESCRIPTION=${VITE_APP_DESCRIPTION:-Target Validation Assistant}
+      - VITE_ENABLE_DEBUG=${VITE_ENABLE_DEBUG:-true}
+      - VITE_SESSION_TIMEOUT_MINUTES=${VITE_SESSION_TIMEOUT_MINUTES:-30}
+      - VITE_TOKEN_REFRESH_BUFFER_MINUTES=${VITE_TOKEN_REFRESH_BUFFER_MINUTES:-5}
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/index.html:/app/index.html
+      - ./frontend/vite.config.js:/app/vite.config.js
+      - ./frontend/tailwind.config.js:/app/tailwind.config.js
+      - ./frontend/postcss.config.cjs:/app/postcss.config.cjs
+      - /app/node_modules
+    depends_on:
+      - backend
     networks:
       - tva-network
 

@@ -1,8 +1,8 @@
-import React, { memo } from 'react';
-import { Book, FileText, FileType, List, ZoomIn, ZoomOut } from 'lucide-react';
-import PDFToolbar from './PDFToolbar';
-import PDFViewer from './PDFViewer';
-import SummaryViewer from './SummaryViewer';
+import React, { memo } from "react";
+import { Book, FileText, FileType, List, ZoomIn, ZoomOut } from "lucide-react";
+import PDFToolbar from "./PDFToolbar";
+import PDFViewer from "./PDFViewer";
+import SummaryViewer from "./SummaryViewer";
 
 const PDFViewerPanel = ({
   paper,
@@ -23,10 +23,10 @@ const PDFViewerPanel = ({
     );
   }
 
-  const isReport = paper.type === 'report';
-  
+  const isReport = paper.type === "report";
+
   // Report일 때는 무조건 summary 모드
-  const displayMode = isReport ? 'summary' : viewMode;
+  const displayMode = isReport ? "summary" : viewMode;
 
   return (
     <div className="flex-1 flex flex-col h-full min-w-0 bg-gray-100 relative">
@@ -45,10 +45,14 @@ const PDFViewerPanel = ({
 
       {/* Main Content Area */}
       <div className="flex-1 overflow-hidden relative bg-gray-200">
-        {displayMode === 'text' && !isReport ? (
+        {displayMode === "text" && !isReport ? (
           <PDFViewer paper={paper} pdfUrl={paper.pdfUrl} />
         ) : (
-          <SummaryViewer paper={paper} isReport={isReport} zoomLevel={zoomLevel} />
+          <SummaryViewer
+            paper={paper}
+            isReport={isReport}
+            zoomLevel={zoomLevel}
+          />
         )}
       </div>
     </div>
