@@ -5,6 +5,7 @@ import pytest
 from app.agents.retriever.pipeline import RetrieverPipeline
 from app.agents.retriever.query_expander import QueryExpander
 from app.agents.retriever.pubmed_fetcher import PubMedFetcher
+from app.agents.retriever.multi_source_fetcher import MultiSourceFetcher
 from app.agents.retriever.semantic_ranker import SemanticRanker
 from app.agents.retriever.paper_filter import PaperFilter
 from app.schemas.query import UserQuery, SearchConstraints
@@ -129,9 +130,7 @@ def test_retriever_pipeline_integration(monkeypatch, user_query, sample_papers):
     # Mock subcomponents to avoid network/LLM
     monkeypatch.setattr(QueryExpander, "expand", lambda self, uq: [{"query_id": "q1::q0", "query": "EGFR", "reason":
         "keyword"}])
-    monkeypatch.setattr(PubMedFetcher, "collect_pmids", lambda self, eqs, retmax=None: ({"q1::q0": ["1"]}, {"1":
-                                                                                                                ["q1::q0"]}))
-    monkeypatch.setattr(PubMedFetcher, "fetch_and_parse", lambda eqs, prov: [sample_papers[0]])
+    monkeypatch.setattr(MultiSourceFetcher, "fetch", lambda self, eqs, retmax=None: [sample_papers[0]])
     monkeypatch.setattr(SemanticRanker, "rank", lambda self, qtext, papers, top_n=200: (papers, {"1": 1.0}))
     monkeypatch.setattr(PaperFilter, "filter", lambda self, uq, papers: (papers, {}))
 
