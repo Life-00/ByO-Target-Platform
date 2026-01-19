@@ -1,0 +1,47 @@
+@import "tailwindcss";
+
+@layer base {
+  * {
+    @apply antialiased;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-gray-100 text-gray-900;
+  }
+}
+
+@layer components {
+  /* Custom Scrollbar */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    @apply bg-gray-100;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-gray-300 rounded hover:bg-gray-400;
+  }
+
+  /* Smooth transitions */
+  button, input, textarea, select {
+    @apply transition-colors duration-150;
+  }
+}
+
+@layer utilities {
+  /* Animation delays for staggered effect */
+  .delay-75 {
+    animation-delay: 0.075s;
+  }
+
+  .delay-150 {
+    animation-delay: 0.15s;
+  }
+}

@@ -1,0 +1,36 @@
+"""
+Alembic migration template.
+
+This template is used to generate new migration files.
+"""
+
+"""${message}
+
+Revision ID: ${up_revision}
+Revises: ${down_revision | comma,n}
+Create Date: ${create_date}
+
+"""
+
+from __future__ import annotations
+
+from typing import Sequence
+
+import sqlalchemy as sa
+from alembic import op
+
+# revision identifiers, used by Alembic.
+revision: str = ${repr(up_revision)}
+down_revision: str | Sequence[str] | None = ${repr(down_revision)}
+branch_labels: Sequence[str] | None = ${repr(branch_labels)}
+depends_on: Sequence[str] | None = ${repr(depends_on)}
+
+
+def upgrade() -> None:
+    """Apply migration."""
+    ${upgrades if upgrades else "pass"}
+
+
+def downgrade() -> None:
+    """Revert migration."""
+    ${downgrades if downgrades else "pass"}
