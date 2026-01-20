@@ -94,26 +94,9 @@ async def download_pdfs(
             logger.error(f"[PDFDownload] Download failed for {paper.arxiv_id}: {str(e)}")
             continue
 
-    # Commit all document records
+    # Don't commit here - let the calling endpoint handle the transaction
     if db and document_ids:
-        try:
-            await db.commit()
-            logger.info(f"[PDFDownload] Committed {len(document_ids)} documents to DB")
-            
-            # Schedule auto-indexing for each downloaded document
-            if background_tasks:
-                from app.api.v1.documents import auto_index_document
-                for doc_id in document_ids:
-                    background_tasks.add_task(
-                        auto_index_document,
-                        document_id=doc_id,
-                        user_id=user_id
-                    )
-                logger.info(f"[PDFDownload] Scheduled auto-indexing for {len(document_ids)} documents")
-                
-        except Exception as e:
-            logger.error(f"[PDFDownload] DB commit failed: {str(e)}")
-            await db.rollback()
+        logger.info(f"[PDFDownload] Prepared {len(document_ids)} documents for commit (will be committed by endpoint)")
 
     return {
         "paths": download_paths,

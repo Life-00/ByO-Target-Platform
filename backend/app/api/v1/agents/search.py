@@ -75,8 +75,8 @@ async def search_papers(
             created_at=datetime.now()
         )
         db.add(user_message)
-        await db.flush()  # Get message ID
-        logger.info(f"[SearchAPI] Saved user message ID: {user_message.id}")
+        # Don't flush here - let the agent and endpoint handle the full transaction
+        logger.info(f"[SearchAPI] Prepared user message for save")
 
         # Execute search
         agent = SearchAgent(db=db, background_tasks=background_tasks)
@@ -115,8 +115,21 @@ async def search_papers(
             created_at=datetime.now()
         )
         db.add(assistant_message)
+        
+        # Commit all changes at once
         await db.commit()
         logger.info(f"[SearchAPI] Saved assistant message ID: {assistant_message.id}")
+
+        # Schedule auto-indexing for downloaded documents (after commit)
+        if response.document_ids:
+            from app.api.v1.documents import auto_index_document
+            for doc_id in response.document_ids:
+                background_tasks.add_task(
+                    auto_index_document,
+                    document_id=doc_id,
+                    user_id=current_user['user_id']
+                )
+            logger.info(f"[SearchAPI] Scheduled auto-indexing for {len(response.document_ids)} documents")
 
         return response
 

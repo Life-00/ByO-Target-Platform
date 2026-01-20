@@ -188,8 +188,8 @@ const ChatPanel = ({
             researchDescription: null,
             analysisGoal: analysisGoal || null,
             documents: selectedItemsList,
-            includeVisualizations: false, // 텍스트만 표시
-            includeNetworkGraph: false,
+            includeVisualizations: true, // 시각화 포함
+            includeNetworkGraph: true,
             reportType: "comprehensive",
             temperature: 0.7,
             maxTokens: 4096,
@@ -200,13 +200,14 @@ const ChatPanel = ({
         // 보고서 결과 메시지 생성
         let resultContent = `📝 **${response.report.title}**\n\n`;
 
-        // 타당성 평가
+        // 타당성 점수 (종합 점수)
         const validation = response.report.validation;
         const feasibilityEmoji = validation.is_feasible ? "✅" : "⚠️";
-        resultContent += `${feasibilityEmoji} **타당성 평가**\n`;
-        resultContent += `- 점수: ${validation.feasibility_score.toFixed(1)}/100\n`;
-        resultContent += `- 결과: ${validation.is_feasible ? "연구 가능" : "추가 검토 필요"}\n`;
-        resultContent += `- 근거: ${validation.reasoning}\n\n`;
+        resultContent += `${feasibilityEmoji} **연구 타당성 종합 점수**\n`;
+        resultContent += `- **점수**: ${validation.feasibility_score.toFixed(1)}/100\n`;
+        resultContent += `- **판정**: ${validation.is_feasible ? "연구 가능" : "추가 검토 필요"}\n`;
+        resultContent += `- **근거**: ${validation.reasoning}\n\n`;
+        resultContent += `📊 *세부 평가 점수는 시각화를 확인하세요 (근거 강도, 일관성, 비교가능성 등)*\n\n`;
 
         // 주요 섹션
         if (response.report.sections && response.report.sections.length > 0) {
@@ -253,6 +254,15 @@ const ChatPanel = ({
           resultContent += `**📄 참고 논문: ${response.report.related_papers.length}개**\n`;
         }
 
+        // 시각화 포함 여부 표시
+        if (
+          response.visualizations &&
+          Object.keys(response.visualizations).length > 0
+        ) {
+          resultContent += `\n**📊 시각화: ${Object.keys(response.visualizations).length}개 차트 생성됨**\n`;
+          resultContent += `*(라이브러리 패널의 Reports 탭에서 시각화를 확인하세요)*\n`;
+        }
+
         resultContent += `\n*토큰 사용: ${response.tokens_used}*`;
 
         const aiMessage = {
@@ -261,6 +271,7 @@ const ChatPanel = ({
           content: resultContent,
           timestamp: new Date(),
           usage: { total_tokens: response.tokens_used },
+          visualizations: response.visualizations || {}, // 시각화 데이터 포함
         };
 
         onAddMessage(aiMessage);
@@ -286,7 +297,7 @@ const ChatPanel = ({
             recommendations: response.report.recommendations,
             limitations: response.report.limitations,
             relatedPapers: response.report.related_papers,
-            visualizations: response.metadata?.visualizations || {}, // 시각화 HTML 포함
+            visualizations: response.visualizations || {}, // 시각화 HTML 포함 (response.visualizations에서 가져오기)
           };
 
           addReport(reportItem);
